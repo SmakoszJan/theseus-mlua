@@ -1,12 +1,12 @@
 # mlua
 [![Build Status]][github-actions] [![Latest Version]][crates.io] [![API Documentation]][docs.rs] [![Coverage Status]][codecov.io] ![MSRV]
 
-[Build Status]: https://github.com/khvzak/mlua/workflows/CI/badge.svg
-[github-actions]: https://github.com/khvzak/mlua/actions
-[Latest Version]: https://img.shields.io/crates/v/mlua.svg
-[crates.io]: https://crates.io/crates/mlua
-[API Documentation]: https://docs.rs/mlua/badge.svg
-[docs.rs]: https://docs.rs/mlua
+[Build Status]: https://github.com/JohnTheCoolingFan/factorio-mlua/workflows/CI/badge.svg
+[github-actions]: https://github.com/JohnTheCoolingFan/factorio-mlua/actions
+[Latest Version]: https://img.shields.io/crates/v/factorio-mlua.svg
+[crates.io]: https://crates.io/crates/factorio-mlua
+[API Documentation]: https://docs.rs/factorio-mlua/badge.svg
+[docs.rs]: https://docs.rs/factorio-mlua
 [Coverage Status]: https://codecov.io/gh/khvzak/mlua/branch/master/graph/badge.svg?token=99339FS1CG
 [codecov.io]: https://codecov.io/gh/khvzak/mlua
 [MSRV]: https://img.shields.io/badge/rust-1.53+-brightgreen.svg?&logo=rust
@@ -22,7 +22,7 @@ This is a fork with added Factorio Lua support.
 
 `mlua` tested on Windows/macOS/Linux including module mode in [GitHub Actions] on `x86_64` platform and cross-compilation to `aarch64` (other targets are also supported).
 
-[GitHub Actions]: https://github.com/khvzak/mlua/actions
+[GitHub Actions]: https://github.com/JohnTheCoolingFan/factorio-mlua/actions
 [Roblox Luau]: https://luau-lang.org
 
 ## Usage
@@ -39,6 +39,7 @@ Below is a list of the available feature flags. By default `mlua` does not enabl
 * `luajit`: activate [LuaJIT] support
 * `luajit52`: activate [LuaJIT] support with partial compatibility with Lua 5.2
 * `luau`: activate [Luau] support (auto vendored mode)
+* `lua-factorio`: activate [Factorio Lua] support (auto vendored mode)
 * `vendored`: build static Lua(JIT) library from sources during `mlua` compilation using [lua-src] or [luajit-src] crates
 * `module`: enable module mode (building loadable `cdylib` library for Lua)
 * `async`: enable async/await support (any executor can be used, eg. [tokio] or [async-std])
@@ -53,6 +54,7 @@ Below is a list of the available feature flags. By default `mlua` does not enabl
 [5.1]: https://www.lua.org/manual/5.1/manual.html
 [LuaJIT]: https://luajit.org/
 [Luau]: https://github.com/Roblox/luau
+[Factorio Lua]: https://github.com/Rseding91/Factorio-Lua
 [lua-src]: https://github.com/khvzak/lua-src-rs
 [luajit-src]: https://github.com/khvzak/luajit-src-rs
 [tokio]: https://github.com/tokio-rs/tokio
