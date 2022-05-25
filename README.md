@@ -18,6 +18,8 @@ _safe_ (as far as it's possible), high level, easy to use, practical and flexibl
 
 Started as `rlua` fork, `mlua` supports Lua 5.4, 5.3, 5.2, 5.1 (including LuaJIT) and [Roblox Luau] and allows to write native Lua modules in Rust as well as use Lua in a standalone mode.
 
+This is a fork with added Factorio Lua support.
+
 `mlua` tested on Windows/macOS/Linux including module mode in [GitHub Actions] on `x86_64` platform and cross-compilation to `aarch64` (other targets are also supported).
 
 [GitHub Actions]: https://github.com/khvzak/mlua/actions
