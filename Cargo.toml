@@ -53,11 +53,11 @@ futures-util = { version = "0.3.5", optional = true }
 serde = { version = "1.0", optional = true }
 erased-serde = { version = "0.3", optional = true }
 parking_lot = { version = "0.12", optional = true }
+link-cplusplus = { version = "1.0", optional = true}
 
 [build-dependencies]
 cc = { version = "1.0" }
 pkg-config = { version = "0.3.17" }
-link-cplusplus = { version = "1.0", optional = true}
 factorio-lua-src = { version = ">= 544.0.0, < 550.0.0", optional = true }
 luajit-src = { version = ">= 210.3.1, < 220.0.0", optional = true }
 luau0-src = { version = "0.3", optional = true }

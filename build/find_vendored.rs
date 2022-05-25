@@ -4,15 +4,15 @@ use std::path::PathBuf;
 
 pub fn probe_lua() -> Option<PathBuf> {
     #[cfg(feature = "lua54")]
-    let artifacts = lua_src::Build::new().build(lua_src::Lua54);
+    let artifacts = factorio_lua_src::Build::new().build(factorio_lua_src::Lua54);
     #[cfg(feature = "lua53")]
-    let artifacts = lua_src::Build::new().build(lua_src::Lua53);
+    let artifacts = factorio_lua_src::Build::new().build(factorio_lua_src::Lua53);
     #[cfg(feature = "lua52")]
-    let artifacts = lua_src::Build::new().build(lua_src::Lua52);
+    let artifacts = factorio_lua_src::Build::new().build(factorio_lua_src::Lua52);
     #[cfg(feature = "lua-factorio")]
-    let artifacts = lua_src::Build::new().build(lua_src::LuaFactorio52);
+    let artifacts = factorio_lua_src::Build::new().build(factorio_lua_src::LuaFactorio52);
     #[cfg(feature = "lua51")]
-    let artifacts = lua_src::Build::new().build(lua_src::Lua51);
+    let artifacts = factorio_lua_src::Build::new().build(factorio_lua_src::Lua51);
     #[cfg(feature = "luajit")]
     let artifacts = {
         let mut builder = luajit_src::Build::new();
