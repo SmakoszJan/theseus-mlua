@@ -18,7 +18,7 @@ Fork with added Factorio Lua support.
 """
 
 [package.metadata.docs.rs]
-features = ["lua54", "vendored", "async", "send", "serialize", "macros", "parking_lot"]
+features = ["lua-factorio", "vendored", "async", "send", "serialize", "macros", "parking_lot"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [workspace]
