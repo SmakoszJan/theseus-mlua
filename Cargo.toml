@@ -14,6 +14,7 @@ build = "build/main.rs"
 description = """
 High level bindings to Lua 5.4/5.3/5.2/5.1 (including LuaJIT) and Roblox Luau
 with async/await features and support of writing native Lua modules in Rust.
+Fork with added Factorio Lua support.
 """
 
 [package.metadata.docs.rs]
