@@ -72,7 +72,7 @@
 //! [`serde::Deserialize`]: https://docs.serde.rs/serde/de/trait.Deserialize.html
 
 // mlua types in rustdoc of other crates get linked to here.
-#![doc(html_root_url = "https://docs.rs/mlua/0.8.0-beta.4")]
+#![doc(html_root_url = "https://docs.rs/mlua/0.8.0-beta.5")]
 // Deny warnings inside doc tests / examples. When this isn't present, rustdoc doesn't show *any*
 // warnings at all.
 #![doc(test(attr(deny(warnings))))]
@@ -128,7 +128,7 @@ pub use crate::hook::HookTriggers;
 
 #[cfg(any(feature = "luau", doc))]
 #[cfg_attr(docsrs, doc(cfg(feature = "luau")))]
-pub use crate::{chunk::Compiler, types::VmState};
+pub use crate::{chunk::Compiler, function::CoverageInfo, types::VmState};
 
 #[cfg(feature = "async")]
 pub use crate::thread::AsyncThread;
