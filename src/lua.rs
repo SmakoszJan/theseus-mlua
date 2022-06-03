@@ -8,6 +8,7 @@ use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
 use std::os::raw::{c_char, c_int, c_void};
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe, Location};
+use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
 use std::{mem, ptr, str};
 
@@ -95,7 +96,7 @@ pub(crate) struct ExtraData {
     app_data: RefCell<HashMap<TypeId, Box<dyn Any + Send>>>,
 
     libs: StdLib,
-    mem_info: Option<ptr::NonNull<MemoryInfo>>,
+    mem_info: Option<NonNull<MemoryInfo>>,
 
     ref_thread: *mut ffi::lua_State,
     ref_stack_size: c_int,
@@ -378,25 +379,20 @@ impl Lua {
     }
 
     unsafe fn inner_new(libs: StdLib, options: LuaOptions) -> Lua {
-        #[cfg_attr(
-            any(feature = "lua51", feature = "luajit", feature = "luau"),
-            allow(dead_code)
-        )]
         unsafe extern "C" fn allocator(
             extra_data: *mut c_void,
             ptr: *mut c_void,
             osize: usize,
             nsize: usize,
         ) -> *mut c_void {
-            use std::alloc;
+            use std::alloc::{self, Layout};
 
             let mem_info = &mut *(extra_data as *mut MemoryInfo);
 
             if nsize == 0 {
                 // Free memory
                 if !ptr.is_null() {
-                    let layout =
-                        alloc::Layout::from_size_align_unchecked(osize, ffi::SYS_MIN_ALIGN);
+                    let layout = Layout::from_size_align_unchecked(osize, ffi::SYS_MIN_ALIGN);
                     alloc::dealloc(ptr as *mut u8, layout);
                     mem_info.used_memory -= osize as isize;
                 }
@@ -413,52 +409,40 @@ impl Lua {
                 return ptr::null_mut();
             }
 
-            let new_layout = alloc::Layout::from_size_align_unchecked(nsize, ffi::SYS_MIN_ALIGN);
+            let new_layout = Layout::from_size_align_unchecked(nsize, ffi::SYS_MIN_ALIGN);
+            mem_info.used_memory += mem_diff;
 
             if ptr.is_null() {
                 // Allocate new memory
                 let new_ptr = alloc::alloc(new_layout) as *mut c_void;
-                if !new_ptr.is_null() {
-                    mem_info.used_memory += mem_diff;
+                if new_ptr.is_null() {
+                    alloc::handle_alloc_error(new_layout);
                 }
                 return new_ptr;
             }
 
             // Reallocate memory
-            let old_layout = alloc::Layout::from_size_align_unchecked(osize, ffi::SYS_MIN_ALIGN);
+            let old_layout = Layout::from_size_align_unchecked(osize, ffi::SYS_MIN_ALIGN);
             let new_ptr = alloc::realloc(ptr as *mut u8, old_layout, nsize) as *mut c_void;
-
-            if !new_ptr.is_null() {
-                mem_info.used_memory += mem_diff;
-            } else if !ptr.is_null() && nsize < osize {
-                // Should not happen
+            if new_ptr.is_null() {
                 alloc::handle_alloc_error(new_layout);
             }
-
             new_ptr
         }
 
-        #[cfg(any(feature = "lua54", feature = "lua53", feature = "lua52", feature = "lua-factorio"))]
         let mem_info = Box::into_raw(Box::new(MemoryInfo {
             used_memory: 0,
             memory_limit: 0,
         }));
 
-        #[cfg(any(feature = "lua54", feature = "lua53", feature = "lua52", feature = "lua-factorio"))]
         let state = ffi::lua_newstate(allocator, mem_info as *mut c_void);
-        #[cfg(any(feature = "lua51", feature = "luajit", feature = "luau"))]
-        let state = ffi::luaL_newstate();
 
         ffi::luaL_requiref(state, cstr!("_G"), ffi::luaopen_base, 1);
         ffi::lua_pop(state, 1);
 
         let lua = Lua::init_from_ptr(state);
         let extra = &mut *lua.extra.get();
-
-        #[cfg(any(feature = "lua54", feature = "lua53", feature = "lua52", feature = "lua-factorio"))]
-        {
-            extra.mem_info = ptr::NonNull::new(mem_info);
-        }
+        extra.mem_info = NonNull::new(mem_info);
 
         mlua_expect!(
             load_from_std_lib(state, libs),
@@ -1425,7 +1409,13 @@ impl Lua {
         unsafe {
             let _sg = StackGuard::new(self.state);
             check_stack(self.state, 3)?;
-            push_string(self.state, s)?;
+
+            if self.unlikely_memory_error() {
+                let s = s.as_ref();
+                ffi::lua_pushlstring(self.state, s.as_ptr() as *const c_char, s.len());
+            } else {
+                push_string(self.state, s)?;
+            }
             Ok(String(self.pop_ref()))
         }
     }
@@ -1435,7 +1425,12 @@ impl Lua {
         unsafe {
             let _sg = StackGuard::new(self.state);
             check_stack(self.state, 2)?;
-            protect_lua!(self.state, 0, 1, fn(state) ffi::lua_newtable(state))?;
+
+            if self.unlikely_memory_error() {
+                ffi::lua_newtable(self.state);
+            } else {
+                protect_lua!(self.state, 0, 1, fn(state) ffi::lua_newtable(state))?;
+            }
             Ok(Table(self.pop_ref()))
         }
     }
@@ -1448,7 +1443,13 @@ impl Lua {
         unsafe {
             let _sg = StackGuard::new(self.state);
             check_stack(self.state, 3)?;
-            push_table(self.state, narr, nrec)?;
+
+            if self.unlikely_memory_error() {
+                ffi::lua_createtable(self.state, narr, nrec);
+            } else {
+                push_table(self.state, narr, nrec)?;
+            }
+
             Ok(Table(self.pop_ref()))
         }
     }
@@ -1466,11 +1467,21 @@ impl Lua {
 
             let iter = iter.into_iter();
             let lower_bound = iter.size_hint().0;
-            push_table(self.state, 0, lower_bound as c_int)?;
-            for (k, v) in iter {
-                self.push_value(k.to_lua(self)?)?;
-                self.push_value(v.to_lua(self)?)?;
-                protect_lua!(self.state, 3, 1, fn(state) ffi::lua_rawset(state, -3))?;
+
+            if self.unlikely_memory_error() {
+                ffi::lua_createtable(self.state, 0, lower_bound as c_int);
+                for (k, v) in iter {
+                    self.push_value(k.to_lua(self)?)?;
+                    self.push_value(v.to_lua(self)?)?;
+                    ffi::lua_rawset(self.state, -3);
+                }
+            } else {
+                push_table(self.state, 0, lower_bound as c_int)?;
+                for (k, v) in iter {
+                    self.push_value(k.to_lua(self)?)?;
+                    self.push_value(v.to_lua(self)?)?;
+                    protect_lua!(self.state, 3, 1, fn(state) ffi::lua_rawset(state, -3))?;
+                }
             }
 
             Ok(Table(self.pop_ref()))
@@ -1489,12 +1500,21 @@ impl Lua {
 
             let iter = iter.into_iter();
             let lower_bound = iter.size_hint().0;
-            push_table(self.state, lower_bound as c_int, 0)?;
-            for (i, v) in iter.enumerate() {
-                self.push_value(v.to_lua(self)?)?;
-                protect_lua!(self.state, 2, 1, |state| {
-                    ffi::lua_rawseti(state, -2, (i + 1) as Integer);
-                })?;
+
+            if self.unlikely_memory_error() {
+                ffi::lua_createtable(self.state, lower_bound as c_int, 0);
+                for (i, v) in iter.enumerate() {
+                    self.push_value(v.to_lua(self)?)?;
+                    ffi::lua_rawseti(self.state, -2, (i + 1) as Integer);
+                }
+            } else {
+                push_table(self.state, lower_bound as c_int, 0)?;
+                for (i, v) in iter.enumerate() {
+                    self.push_value(v.to_lua(self)?)?;
+                    protect_lua!(self.state, 2, 1, |state| {
+                        ffi::lua_rawseti(state, -2, (i + 1) as Integer);
+                    })?;
+                }
             }
 
             Ok(Table(self.pop_ref()))
@@ -1653,7 +1673,11 @@ impl Lua {
             let _sg = StackGuard::new(self.state);
             check_stack(self.state, 3)?;
 
-            let thread_state = protect_lua!(self.state, 0, 1, |state| ffi::lua_newthread(state))?;
+            let thread_state = if self.unlikely_memory_error() {
+                ffi::lua_newthread(self.state)
+            } else {
+                protect_lua!(self.state, 0, 1, |state| ffi::lua_newthread(state))?
+            };
             self.push_ref(&func.0);
             ffi::lua_xmove(self.state, thread_state, 1);
 
@@ -1828,9 +1852,13 @@ impl Lua {
                 check_stack(self.state, 4)?;
 
                 self.push_value(v)?;
-                let res = protect_lua!(self.state, 1, 1, |state| {
-                    ffi::lua_tolstring(state, -1, ptr::null_mut())
-                })?;
+                let res = if self.unlikely_memory_error() {
+                    ffi::lua_tolstring(self.state, -1, ptr::null_mut())
+                } else {
+                    protect_lua!(self.state, 1, 1, |state| {
+                        ffi::lua_tolstring(state, -1, ptr::null_mut())
+                    })?
+                };
                 if !res.is_null() {
                     Some(String(self.pop_ref()))
                 } else {
@@ -2262,15 +2290,29 @@ impl Lua {
                 ud
             }
 
+            #[cfg(any(feature = "lua54", feature = "lua53"))]
             ffi::LUA_TNUMBER => {
-                if ffi::lua_isinteger(state, -1) != 0 {
-                    let i = Value::Integer(ffi::lua_tointeger(state, -1));
-                    ffi::lua_pop(state, 1);
-                    i
+                let v = if ffi::lua_isinteger(state, -1) != 0 {
+                    Value::Integer(ffi::lua_tointeger(state, -1))
                 } else {
-                    let n = Value::Number(ffi::lua_tonumber(state, -1));
-                    ffi::lua_pop(state, 1);
-                    n
+                    Value::Number(ffi::lua_tonumber(state, -1))
+                };
+                ffi::lua_pop(state, 1);
+                v
+            }
+
+            #[cfg(any(
+                feature = "lua52",
+                feature = "lua51",
+                feature = "luajit",
+                feature = "luau"
+            ))]
+            ffi::LUA_TNUMBER => {
+                let n = ffi::lua_tonumber(state, -1);
+                ffi::lua_pop(state, 1);
+                match num_traits::cast(n) {
+                    Some(i) if (n - (i as Number)).abs() < Number::EPSILON => Value::Integer(i),
+                    _ => Value::Number(n),
                 }
             }
 
@@ -2584,9 +2626,13 @@ impl Lua {
             let func = mem::transmute(func);
             let extra = Arc::clone(&self.extra);
             push_gc_userdata(self.state, CallbackUpvalue { data: func, extra })?;
-            protect_lua!(self.state, 1, 1, fn(state) {
-                ffi::lua_pushcclosure(state, call_callback, 1);
-            })?;
+            if self.unlikely_memory_error() {
+                ffi::lua_pushcclosure(self.state, call_callback, 1);
+            } else {
+                protect_lua!(self.state, 1, 1, fn(state) {
+                    ffi::lua_pushcclosure(state, call_callback, 1);
+                })?;
+            }
 
             Ok(Function(self.pop_ref()))
         }
@@ -2644,9 +2690,13 @@ impl Lua {
                 let fut = func(lua, args);
                 let extra = Arc::clone(&(*upvalue).extra);
                 push_gc_userdata(state, AsyncPollUpvalue { data: fut, extra })?;
-                protect_lua!(state, 1, 1, fn(state) {
+                if lua.unlikely_memory_error() {
                     ffi::lua_pushcclosure(state, poll_future, 1);
-                })?;
+                } else {
+                    protect_lua!(state, 1, 1, fn(state) {
+                        ffi::lua_pushcclosure(state, poll_future, 1);
+                    })?;
+                }
 
                 Ok(1)
             })
@@ -2706,9 +2756,13 @@ impl Lua {
             let func = mem::transmute(func);
             let extra = Arc::clone(&self.extra);
             push_gc_userdata(self.state, AsyncCallbackUpvalue { data: func, extra })?;
-            protect_lua!(self.state, 1, 1, fn(state) {
-                ffi::lua_pushcclosure(state, call_callback, 1);
-            })?;
+            if self.unlikely_memory_error() {
+                ffi::lua_pushcclosure(self.state, call_callback, 1);
+            } else {
+                protect_lua!(self.state, 1, 1, fn(state) {
+                    ffi::lua_pushcclosure(state, call_callback, 1);
+                })?;
+            }
 
             Function(self.pop_ref())
         };
@@ -2851,6 +2905,16 @@ impl Lua {
                 extra.multivalue_cache.push(mem::transmute(multivalue));
             }
         }
+    }
+
+    #[inline]
+    pub(crate) unsafe fn unlikely_memory_error(&self) -> bool {
+        let extra = &mut *self.extra.get();
+        // MemoryInfo is empty in module mode so we cannot predict memory limits
+        extra
+            .mem_info
+            .map(|x| x.as_ref().memory_limit == 0)
+            .unwrap_or_default()
     }
 }
 
