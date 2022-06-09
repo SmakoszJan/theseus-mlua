@@ -6,7 +6,7 @@ edition = "2018"
 repository = "https://github.com/JohnTheCoolingFan/factorio-mlua"
 documentation = "https://docs.rs/factorio-mlua"
 readme = "README.md"
-keywords = ["lua", "luajit", "async", "scripting", "factorio"]
+keywords = ["lua", "luajit", "luau", "scripting", "factorio"]
 categories = ["api-bindings", "asynchronous"]
 license = "MIT"
 links = "lua"
@@ -59,9 +59,15 @@ link-cplusplus = { version = "1.0", optional = true}
 [build-dependencies]
 cc = { version = "1.0" }
 pkg-config = { version = "0.3.17" }
+<<<<<<< HEAD
 factorio-lua-src = { version = ">= 544.0.0, < 550.0.0", optional = true }
 luajit-src = { version = ">= 210.3.1, < 220.0.0", optional = true }
 luau0-src = { version = "0.3", optional = true }
+=======
+lua-src = { version = ">= 544.0.0, < 550.0.0", optional = true }
+luajit-src = { version = ">= 210.4.0, < 220.0.0", optional = true }
+luau0-src = { version = "0.3.2", optional = true }
+>>>>>>> d9ac7abff2d605f8345657b1625eb3e2de02ddd8
 
 [dev-dependencies]
 rustyline = "9.0"
