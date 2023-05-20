@@ -714,11 +714,11 @@ impl<'lua> Table<'lua> {
     pub fn table_size(&self, fuzzy: bool) -> Integer {
         let lua = self.0.lua;
         unsafe {
-            let _sg = StackGuard::new(lua.state);
-            assert_stack(lua.state, 1);
+            let _sg = StackGuard::new(lua.state());
+            assert_stack(lua.state(), 1);
 
             lua.push_ref(&self.0);
-            ffi::lua_tablesize(lua.state, -1, fuzzy as i32) as Integer
+            ffi::lua_tablesize(lua.state(), -1, fuzzy as i32) as Integer
         }
     }
 
