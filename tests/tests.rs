@@ -73,6 +73,7 @@ fn test_load() -> Result<()> {
     let result: i32 = func.call(())?;
     assert_eq!(result, 3);
 
+    assert!(lua.load("").exec().is_ok());
     assert!(lua.load("§$%§&$%&").exec().is_err());
 
     Ok(())
@@ -275,7 +276,10 @@ fn test_error() -> Result<()> {
             end, 3)
 
             local function handler(err)
-                if string.match(_VERSION, ' 5%.1$') or string.match(_VERSION, ' 5%.2$') or _VERSION == "Luau" then
+                if string.match(_VERSION, " 5%.1$")
+                    or string.match(_VERSION, " 5%.2$")
+                    or string.match(_VERSION, "Luau")
+                then
                     -- Special case for Lua 5.1/5.2 and Luau
                     local caps = string.match(err, ': (%d+)$')
                     if caps then
@@ -304,7 +308,7 @@ fn test_error() -> Result<()> {
     .exec()?;
 
     let rust_error_function =
-        lua.create_function(|_, ()| -> Result<()> { Err(TestError.to_lua_err()) })?;
+        lua.create_function(|_, ()| -> Result<()> { Err(TestError.into_lua_err()) })?;
     globals.set("rust_error_function", rust_error_function)?;
 
     let no_error = globals.get::<_, Function>("no_error")?;
@@ -502,7 +506,7 @@ fn test_result_conversions() -> Result<()> {
 
     let err = lua.create_function(|_, ()| {
         Ok(Err::<String, _>(
-            "only through failure can we succeed".to_lua_err(),
+            "only through failure can we succeed".into_lua_err(),
         ))
     })?;
     let ok = lua.create_function(|_, ()| Ok(Ok::<_, Error>("!".to_owned())))?;
@@ -726,9 +730,9 @@ fn test_set_metatable_nil() -> Result<()> {
 fn test_named_registry_value() -> Result<()> {
     let lua = Lua::new();
 
-    lua.set_named_registry_value::<_, i32>("test", 42)?;
+    lua.set_named_registry_value::<i32>("test", 42)?;
     let f = lua.create_function(move |lua, ()| {
-        assert_eq!(lua.named_registry_value::<_, i32>("test")?, 42);
+        assert_eq!(lua.named_registry_value::<i32>("test")?, 42);
         Ok(())
     })?;
 
@@ -792,6 +796,17 @@ fn test_replace_registry_value() -> Result<()> {
     let key = lua.create_registry_value::<i32>(42)?;
     lua.replace_registry_value(&key, "new value")?;
     assert_eq!(lua.registry_value::<String>(&key)?, "new value");
+    lua.replace_registry_value(&key, Value::Nil)?;
+    assert_eq!(lua.registry_value::<Value>(&key)?, Value::Nil);
+    lua.replace_registry_value(&key, 123)?;
+    assert_eq!(lua.registry_value::<i32>(&key)?, 123);
+
+    // It should be impossible to replace (initial) nil value with non-nil
+    let key2 = lua.create_registry_value(Value::Nil)?;
+    match lua.replace_registry_value(&key2, "abc") {
+        Err(Error::RuntimeError(_)) => {}
+        r => panic!("expected RuntimeError, got {r:?}"),
+    }
 
     Ok(())
 }
@@ -839,6 +854,28 @@ fn test_mismatched_registry_key() -> Result<()> {
         Err(Error::MismatchedRegistryKey) => {}
         r => panic!("wrong result type for mismatched registry key, {:?}", r),
     };
+
+    Ok(())
+}
+
+#[test]
+fn test_registry_value_reuse() -> Result<()> {
+    let lua = Lua::new();
+
+    let r1 = lua.create_registry_value("value1")?;
+    let r1_slot = format!("{r1:?}");
+    drop(r1);
+
+    // Previous slot must not be reused by nil value
+    let r2 = lua.create_registry_value(Value::Nil)?;
+    let r2_slot = format!("{r2:?}");
+    assert_ne!(r1_slot, r2_slot);
+    drop(r2);
+
+    // But should be reused by non-nil value
+    let r3 = lua.create_registry_value("value3")?;
+    let r3_slot = format!("{r3:?}");
+    assert_eq!(r1_slot, r3_slot);
 
     Ok(())
 }
@@ -1035,7 +1072,7 @@ fn test_chunk_env() -> Result<()> {
         test_var = 1
     "#,
     )
-    .set_environment(env1.clone())?
+    .set_environment(env1.clone())
     .exec()?;
 
     lua.load(
@@ -1044,18 +1081,11 @@ fn test_chunk_env() -> Result<()> {
         test_var = 2
     "#,
     )
-    .set_environment(env2.clone())?
+    .set_environment(env2.clone())
     .exec()?;
 
-    assert_eq!(
-        lua.load("test_var").set_environment(env1)?.eval::<i32>()?,
-        1
-    );
-
-    assert_eq!(
-        lua.load("test_var").set_environment(env2)?.eval::<i32>()?,
-        2
-    );
+    assert_eq!(lua.load("test_var").set_environment(env1).eval::<i32>()?, 1);
+    assert_eq!(lua.load("test_var").set_environment(env2).eval::<i32>()?, 2);
 
     Ok(())
 }
@@ -1190,7 +1220,7 @@ fn test_inspect_stack() -> Result<()> {
         assert(logline("world") == '[string "chunk"]:12 world')
     "#,
     )
-    .set_name("chunk")?
+    .set_name("chunk")
     .exec()?;
 
     Ok(())

@@ -1,3 +1,93 @@
+## v0.9.0-beta.2
+
+New features:
+- Added `Thread::set_hook()` function to set hook on threads
+- Added pretty print to the Debug formatting to Lua `Value` and `Table`
+- ffi layer moved to `mlua-sys` crate
+- Added OwnedString (unstable)
+
+Breaking changes:
+- Refactor `HookTriggers` (make it const)
+
+## v0.9.0-beta.1
+
+New features:
+- Owned Lua types (unstable feature flag)
+- New functions `Function::wrap`/`Function::wrap_mut`/`Function::wrap_async`
+- `Lua::register_userdata_type()` to register a custom userdata types (without requiring `UserData` trait)
+- `Lua::create_any_userdata()`
+- Added `create_userdata_ref`/`create_userdata_ref_mut` for scopes
+- Added `AnyUserDataExt` trait with auxiliary functions for `AnyUserData`
+- Added `UserDataRef` and `UserDataRefMut` type wrapped that implement `FromLua`
+- Improved error handling:
+  * Improved error reporting when calling Rust functions from Lua.
+  * Added `Error::BadArgument` to help identify bad argument position or name
+  * Added `ErrorContext` extension trait to attach additional context to `Error`
+
+Breaking changes:
+- Refactored `AsChunk` trait
+- `ToLua`/`ToLuaMulti` renamed to `IntoLua`/`IntoLuaMulti`
+- Renamed `to_lua_err` to `into_lua_err`
+- Removed `FromLua` impl for `T: UserData+Clone`
+- Removed `Lua::async_scope`
+- Added `&Lua` arg to Luau interrupt callback
+
+Other:
+- Better Debug for String
+- Allow deserializing values from serializable UserData using `Lua::from_value()` method
+- Added `Table::clear()` method
+- Added `Error::downcast_ref()` method
+- Support setting memory limit for Lua 5.1/JIT/Luau
+- Support setting module name in `#[lua_module(name = "...")]` macro
+- Minor fixes and improvements
+
+## v0.8.8
+
+- Fix potential deadlock when trying to reuse dropped registry keys.
+- Optimize userdata methods call when __index and fields_getters are nil
+
+## v0.8.7
+
+- Minimum Luau updated to 0.555 (`LUAI_MAXCSTACK` limit increased to 100000)
+- `_VERSION` in Luau now includes version number
+- Fixed lifetime of `DebugNames` in `Debug::names()` and `DebugSource` in `Debug::source()`
+- Fixed subtraction overflow when calculating index for `MultiValue::get()`
+
+## v0.8.6
+
+- Fixed bug when recycled Registry slot can be set to Nil
+
+## v0.8.5
+
+- Fixed potential unsoundness when using `Layout::from_size_align_unchecked` and Rust 1.65+
+- Performance optimizations around string and table creation in standalone mode
+- Added fast track path to Table `get`/`set`/`len` methods without metatable
+- Added new methods `push`/`pop`/`raw_push`/`raw_pop` to Table
+- Fix getting caller information from `Lua::load`
+- Better checks and tests when trying to modify a Luau readonly table
+
+## v0.8.4
+
+- Minimal Luau updated to 0.548
+
+## v0.8.3
+
+- Close to-be-closed variables for Lua 5.4 when using call_async functions (#192)
+- Fixed Lua assertion when inspecting another thread stack. (#195)
+- Use more reliable way to create LuaJIT VM (which can fail if use Rust allocator on non-x86 platforms)
+
+## v0.8.2
+
+- Performance optimizations in handling UserData
+- Minimal Luau updated to 0.536
+- Fixed bug in `Function::bind` when passing empty binds and no arguments (#189)
+
+## v0.8.1
+
+- Added `Lua::create_proxy` for accessing to UserData static fields and functions without instance
+- Added `Table::to_pointer()` and `String::to_pointer()` functions
+- Bugfixes and improvements (#176 #179)
+
 ## v0.8.0
 Changes since 0.7.4
 - Roblox Luau support

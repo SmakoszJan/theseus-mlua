@@ -1,7 +1,7 @@
 use std::fs;
 use std::io;
 
-use mlua::{Error, Lua, Result};
+use mlua::{Lua, Result};
 
 #[test]
 fn test_chunk_path() -> Result<()> {
@@ -14,12 +14,11 @@ fn test_chunk_path() -> Result<()> {
         return 321
     "#,
     )?;
-    let i: i32 = lua.load(&temp_dir.path().join("module.lua")).eval()?;
+    let i: i32 = lua.load(&*temp_dir.path().join("module.lua")).eval()?;
     assert_eq!(i, 321);
 
-    match lua.load(&temp_dir.path().join("module2.lua")).exec() {
-        Err(Error::ExternalError(err))
-            if err.downcast_ref::<io::Error>().unwrap().kind() == io::ErrorKind::NotFound => {}
+    match lua.load(&*temp_dir.path().join("module2.lua")).exec() {
+        Err(err) if err.downcast_ref::<io::Error>().unwrap().kind() == io::ErrorKind::NotFound => {}
         res => panic!("expected io::Error, got {:?}", res),
     };
 

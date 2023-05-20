@@ -1,6 +1,7 @@
 use std::cell::UnsafeCell;
 use std::hash::{Hash, Hasher};
 use std::os::raw::{c_int, c_void};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::{fmt, mem, ptr};
 
@@ -11,12 +12,14 @@ use std::ffi::CStr;
 use futures_core::future::LocalBoxFuture;
 
 use crate::error::Result;
-use crate::ffi;
 #[cfg(not(feature = "luau"))]
 use crate::hook::Debug;
 use crate::lua::{ExtraData, Lua};
 use crate::util::{assert_stack, StackGuard};
 use crate::value::MultiValue;
+
+#[cfg(feature = "unstable")]
+use {crate::lua::LuaInner, std::marker::PhantomData};
 
 /// Type of Lua integer numbers.
 pub type Integer = ffi::lua_Integer;
@@ -62,10 +65,10 @@ pub(crate) type HookCallback = Arc<dyn Fn(&Lua, Debug) -> Result<()> + Send>;
 pub(crate) type HookCallback = Arc<dyn Fn(&Lua, Debug) -> Result<()>>;
 
 #[cfg(all(feature = "luau", feature = "send"))]
-pub(crate) type InterruptCallback = Arc<dyn Fn() -> Result<VmState> + Send>;
+pub(crate) type InterruptCallback = Arc<dyn Fn(&Lua) -> Result<VmState> + Send>;
 
 #[cfg(all(feature = "luau", not(feature = "send")))]
-pub(crate) type InterruptCallback = Arc<dyn Fn() -> Result<VmState>>;
+pub(crate) type InterruptCallback = Arc<dyn Fn(&Lua) -> Result<VmState>>;
 
 #[cfg(all(feature = "send", feature = "lua54"))]
 pub(crate) type WarnCallback = Box<dyn Fn(&Lua, &CStr, bool) -> Result<()> + Send>;
@@ -83,7 +86,7 @@ pub trait MaybeSend {}
 #[cfg(not(feature = "send"))]
 impl<T> MaybeSend for T {}
 
-pub(crate) struct DestructedUserdataMT;
+pub(crate) struct DestructedUserdata;
 
 /// An auto generated key into the Lua registry.
 ///
@@ -104,6 +107,7 @@ pub(crate) struct DestructedUserdataMT;
 /// [`AnyUserData::get_user_value`]: crate::AnyUserData::get_user_value
 pub struct RegistryKey {
     pub(crate) registry_id: c_int,
+    pub(crate) is_nil: AtomicBool,
     pub(crate) unref_list: Arc<Mutex<Option<Vec<c_int>>>>,
 }
 
@@ -129,15 +133,27 @@ impl Eq for RegistryKey {}
 
 impl Drop for RegistryKey {
     fn drop(&mut self) {
-        let mut unref_list = mlua_expect!(self.unref_list.lock(), "unref list poisoned");
-        if let Some(list) = unref_list.as_mut() {
-            list.push(self.registry_id);
+        // We don't need to collect nil slot
+        if self.registry_id > ffi::LUA_REFNIL {
+            let mut unref_list = mlua_expect!(self.unref_list.lock(), "unref list poisoned");
+            if let Some(list) = unref_list.as_mut() {
+                list.push(self.registry_id);
+            }
         }
     }
 }
 
 impl RegistryKey {
-    // Destroys the RegistryKey without adding to the drop list
+    // Creates a new instance of `RegistryKey`
+    pub(crate) const fn new(id: c_int, unref_list: Arc<Mutex<Option<Vec<c_int>>>>) -> Self {
+        RegistryKey {
+            registry_id: id,
+            is_nil: AtomicBool::new(id == ffi::LUA_REFNIL),
+            unref_list,
+        }
+    }
+
+    // Destroys the `RegistryKey` without adding to the unref list
     pub(crate) fn take(self) -> c_int {
         let registry_id = self.registry_id;
         unsafe {
@@ -146,11 +162,46 @@ impl RegistryKey {
         }
         registry_id
     }
+
+    // Returns true if this `RegistryKey` holds a nil value
+    #[inline(always)]
+    pub(crate) fn is_nil(&self) -> bool {
+        self.is_nil.load(Ordering::Relaxed)
+    }
+
+    // Marks value of this `RegistryKey` as `Nil`
+    #[inline(always)]
+    pub(crate) fn set_nil(&self, enabled: bool) {
+        // We cannot replace previous value with nil in as this will break
+        // Lua mechanism to find free keys.
+        // Instead, we set a special flag to mark value as nil.
+        self.is_nil.store(enabled, Ordering::Relaxed);
+    }
 }
 
 pub(crate) struct LuaRef<'lua> {
     pub(crate) lua: &'lua Lua,
     pub(crate) index: c_int,
+    pub(crate) drop: bool,
+}
+
+impl<'lua> LuaRef<'lua> {
+    pub(crate) const fn new(lua: &'lua Lua, index: c_int) -> Self {
+        LuaRef {
+            lua,
+            index,
+            drop: true,
+        }
+    }
+
+    #[cfg(feature = "unstable")]
+    #[inline]
+    pub(crate) fn into_owned(self) -> LuaOwnedRef {
+        assert!(self.drop, "Cannot turn non-drop reference into owned");
+        let owned_ref = LuaOwnedRef::new(self.lua.clone(), self.index);
+        mem::forget(self);
+        owned_ref
+    }
 }
 
 impl<'lua> fmt::Debug for LuaRef<'lua> {
@@ -167,8 +218,8 @@ impl<'lua> Clone for LuaRef<'lua> {
 
 impl<'lua> Drop for LuaRef<'lua> {
     fn drop(&mut self) {
-        if self.index > 0 {
-            self.lua.drop_ref(self);
+        if self.drop {
+            self.lua.drop_ref_index(self.index);
         }
     }
 }
@@ -176,12 +227,72 @@ impl<'lua> Drop for LuaRef<'lua> {
 impl<'lua> PartialEq for LuaRef<'lua> {
     fn eq(&self, other: &Self) -> bool {
         let lua = self.lua;
+        let state = lua.state();
         unsafe {
-            let _sg = StackGuard::new(lua.state);
-            assert_stack(lua.state, 2);
+            let _sg = StackGuard::new(state);
+            assert_stack(state, 2);
             lua.push_ref(self);
             lua.push_ref(other);
-            ffi::lua_rawequal(lua.state, -1, -2) == 1
+            ffi::lua_rawequal(state, -1, -2) == 1
         }
     }
+}
+
+#[cfg(feature = "unstable")]
+pub(crate) struct LuaOwnedRef {
+    pub(crate) inner: Arc<LuaInner>,
+    pub(crate) index: c_int,
+    _non_send: PhantomData<*const ()>,
+}
+
+#[cfg(feature = "unstable")]
+impl fmt::Debug for LuaOwnedRef {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "OwnedRef({})", self.index)
+    }
+}
+
+#[cfg(feature = "unstable")]
+impl Clone for LuaOwnedRef {
+    fn clone(&self) -> Self {
+        self.to_ref().clone().into_owned()
+    }
+}
+
+#[cfg(feature = "unstable")]
+impl Drop for LuaOwnedRef {
+    fn drop(&mut self) {
+        let lua: &Lua = unsafe { mem::transmute(&self.inner) };
+        lua.drop_ref_index(self.index);
+    }
+}
+
+#[cfg(feature = "unstable")]
+impl LuaOwnedRef {
+    pub(crate) const fn new(inner: Arc<LuaInner>, index: c_int) -> Self {
+        LuaOwnedRef {
+            inner,
+            index,
+            _non_send: PhantomData,
+        }
+    }
+
+    pub(crate) const fn to_ref(&self) -> LuaRef {
+        LuaRef {
+            lua: unsafe { mem::transmute(&self.inner) },
+            index: self.index,
+            drop: false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod assertions {
+    use super::*;
+
+    static_assertions::assert_impl_all!(RegistryKey: Send, Sync);
+    static_assertions::assert_not_impl_any!(LuaRef: Send);
+
+    #[cfg(feature = "unstable")]
+    static_assertions::assert_not_impl_any!(LuaOwnedRef: Send);
 }

@@ -2,16 +2,18 @@
 
 #[doc(no_inline)]
 pub use crate::{
-    AnyUserData as LuaAnyUserData, Chunk as LuaChunk, Error as LuaError,
-    ExternalError as LuaExternalError, ExternalResult as LuaExternalResult, FromLua, FromLuaMulti,
-    Function as LuaFunction, FunctionInfo as LuaFunctionInfo, GCMode as LuaGCMode,
-    Integer as LuaInteger, LightUserData as LuaLightUserData, Lua, LuaOptions,
-    MetaMethod as LuaMetaMethod, MultiValue as LuaMultiValue, Nil as LuaNil, Number as LuaNumber,
-    RegistryKey as LuaRegistryKey, Result as LuaResult, StdLib as LuaStdLib, String as LuaString,
-    Table as LuaTable, TableExt as LuaTableExt, TablePairs as LuaTablePairs,
-    TableSequence as LuaTableSequence, Thread as LuaThread, ThreadStatus as LuaThreadStatus, ToLua,
-    ToLuaMulti, UserData as LuaUserData, UserDataFields as LuaUserDataFields,
-    UserDataMetatable as LuaUserDataMetatable, UserDataMethods as LuaUserDataMethods,
+    AnyUserData as LuaAnyUserData, AnyUserDataExt as LuaAnyUserDataExt, Chunk as LuaChunk,
+    Error as LuaError, ErrorContext as LuaErrorContext, ExternalError as LuaExternalError,
+    ExternalResult as LuaExternalResult, FromLua, FromLuaMulti, Function as LuaFunction,
+    FunctionInfo as LuaFunctionInfo, GCMode as LuaGCMode, Integer as LuaInteger, IntoLua,
+    IntoLuaMulti, LightUserData as LuaLightUserData, Lua, LuaOptions, MetaMethod as LuaMetaMethod,
+    MultiValue as LuaMultiValue, Nil as LuaNil, Number as LuaNumber, RegistryKey as LuaRegistryKey,
+    Result as LuaResult, StdLib as LuaStdLib, String as LuaString, Table as LuaTable,
+    TableExt as LuaTableExt, TablePairs as LuaTablePairs, TableSequence as LuaTableSequence,
+    Thread as LuaThread, ThreadStatus as LuaThreadStatus, UserData as LuaUserData,
+    UserDataFields as LuaUserDataFields, UserDataMetatable as LuaUserDataMetatable,
+    UserDataMethods as LuaUserDataMethods, UserDataRef as LuaUserDataRef,
+    UserDataRefMut as LuaUserDataRefMut, UserDataRegistrar as LuaUserDataRegistrar,
     Value as LuaValue,
 };
 
@@ -32,4 +34,11 @@ pub use crate::AsyncThread as LuaAsyncThread;
 pub use crate::{
     DeserializeOptions as LuaDeserializeOptions, LuaSerdeExt,
     SerializeOptions as LuaSerializeOptions,
+};
+
+#[cfg(feature = "unstable")]
+#[doc(no_inline)]
+pub use crate::{
+    OwnedAnyUserData as LuaOwnedAnyUserData, OwnedFunction as LuaOwnedFunction,
+    OwnedString as LuaOwnedString, OwnedTable as LuaOwnedTable,
 };

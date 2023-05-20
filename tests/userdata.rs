@@ -1,3 +1,4 @@
+use std::string::String as StdString;
 use std::sync::Arc;
 #[cfg(not(feature = "parking_lot"))]
 use std::sync::{Mutex, RwLock};
@@ -12,12 +13,12 @@ use std::{cell::RefCell, rc::Rc};
 use std::sync::atomic::{AtomicI64, Ordering};
 
 use mlua::{
-    AnyUserData, Error, ExternalError, Function, Lua, MetaMethod, Nil, Result, String, UserData,
-    UserDataFields, UserDataMethods, Value,
+    AnyUserData, AnyUserDataExt, Error, ExternalError, Function, Lua, MetaMethod, Nil, Result,
+    String, UserData, UserDataFields, UserDataMethods, UserDataRef, Value,
 };
 
 #[test]
-fn test_user_data() -> Result<()> {
+fn test_userdata() -> Result<()> {
     struct UserData1(i64);
     struct UserData2(Box<i64>);
 
@@ -100,20 +101,25 @@ fn test_metamethods() -> Result<()> {
             methods.add_method("get", |_, data, ()| Ok(data.0));
             methods.add_meta_function(
                 MetaMethod::Add,
-                |_, (lhs, rhs): (MyUserData, MyUserData)| Ok(MyUserData(lhs.0 + rhs.0)),
+                |_, (lhs, rhs): (UserDataRef<Self>, UserDataRef<Self>)| {
+                    Ok(MyUserData(lhs.0 + rhs.0))
+                },
             );
             methods.add_meta_function(
                 MetaMethod::Sub,
-                |_, (lhs, rhs): (MyUserData, MyUserData)| Ok(MyUserData(lhs.0 - rhs.0)),
+                |_, (lhs, rhs): (UserDataRef<Self>, UserDataRef<Self>)| {
+                    Ok(MyUserData(lhs.0 - rhs.0))
+                },
             );
-            methods.add_meta_function(MetaMethod::Eq, |_, (lhs, rhs): (MyUserData, MyUserData)| {
-                Ok(lhs.0 == rhs.0)
-            });
+            methods.add_meta_function(
+                MetaMethod::Eq,
+                |_, (lhs, rhs): (UserDataRef<Self>, UserDataRef<Self>)| Ok(lhs.0 == rhs.0),
+            );
             methods.add_meta_method(MetaMethod::Index, |_, data, index: String| {
                 if index.to_str()? == "inner" {
                     Ok(data.0)
                 } else {
-                    Err("no such custom index".to_lua_err())
+                    Err("no such custom index".into_lua_err())
                 }
             });
             #[cfg(any(
@@ -124,13 +130,14 @@ fn test_metamethods() -> Result<()> {
             ))]
             methods.add_meta_method(MetaMethod::Pairs, |lua, data, ()| {
                 use std::iter::FromIterator;
-                let stateless_iter = lua.create_function(|_, (data, i): (MyUserData, i64)| {
-                    let i = i + 1;
-                    if i <= data.0 {
-                        return Ok(mlua::Variadic::from_iter(vec![i, i]));
-                    }
-                    return Ok(mlua::Variadic::new());
-                })?;
+                let stateless_iter =
+                    lua.create_function(|_, (data, i): (UserDataRef<Self>, i64)| {
+                        let i = i + 1;
+                        if i <= data.0 {
+                            return Ok(mlua::Variadic::from_iter(vec![i, i]));
+                        }
+                        return Ok(mlua::Variadic::new());
+                    })?;
                 Ok((stateless_iter, data.clone(), 0))
             });
         }
@@ -142,7 +149,9 @@ fn test_metamethods() -> Result<()> {
     globals.set("userdata2", MyUserData(3))?;
     globals.set("userdata3", MyUserData(3))?;
     assert_eq!(
-        lua.load("userdata1 + userdata2").eval::<MyUserData>()?.0,
+        lua.load("userdata1 + userdata2")
+            .eval::<UserDataRef<MyUserData>>()?
+            .0,
         10
     );
 
@@ -166,7 +175,12 @@ fn test_metamethods() -> Result<()> {
         )
         .eval::<Function>()?;
 
-    assert_eq!(lua.load("userdata1 - userdata2").eval::<MyUserData>()?.0, 4);
+    assert_eq!(
+        lua.load("userdata1 - userdata2")
+            .eval::<UserDataRef<MyUserData>>()?
+            .0,
+        4
+    );
     assert_eq!(lua.load("userdata1:get()").eval::<i64>()?, 7);
     assert_eq!(lua.load("userdata2.inner").eval::<i64>()?, 3);
     assert!(lua.load("userdata2.nonexist_field").eval::<()>().is_err());
@@ -305,21 +319,19 @@ fn test_userdata_take() -> Result<()> {
     fn check_userdata_take(lua: &Lua, userdata: AnyUserData, rc: Arc<i64>) -> Result<()> {
         lua.globals().set("userdata", userdata.clone())?;
         assert_eq!(Arc::strong_count(&rc), 3);
-        let userdata_copy = userdata.clone();
         {
             let _value = userdata.borrow::<MyUserdata>()?;
             // We should not be able to take userdata if it's borrowed
-            match userdata_copy.take::<MyUserdata>() {
+            match userdata.take::<MyUserdata>() {
                 Err(Error::UserDataBorrowMutError) => {}
                 r => panic!("expected `UserDataBorrowMutError` error, got {:?}", r),
             }
         }
 
-        let value = userdata_copy.take::<MyUserdata>()?;
+        let value = userdata.take::<MyUserdata>()?;
         assert_eq!(*value.0, 18);
         drop(value);
-        lua.gc_collect()?;
-        assert_eq!(Arc::strong_count(&rc), 1);
+        assert_eq!(Arc::strong_count(&rc), 2);
 
         match userdata.borrow::<MyUserdata>() {
             Err(Error::UserDataDestructed) => {}
@@ -332,6 +344,13 @@ fn test_userdata_take() -> Result<()> {
             },
             r => panic!("improper return for destructed userdata: {:?}", r),
         }
+
+        drop(userdata);
+        lua.globals().raw_remove("userdata")?;
+        lua.gc_collect()?;
+        lua.gc_collect()?;
+        assert_eq!(Arc::strong_count(&rc), 1);
+
         Ok(())
     }
 
@@ -403,9 +422,9 @@ fn test_user_values() -> Result<()> {
     ud.set_named_user_value("name", "alex")?;
     ud.set_named_user_value("age", 10)?;
 
-    assert_eq!(ud.get_named_user_value::<_, String>("name")?, "alex");
-    assert_eq!(ud.get_named_user_value::<_, i32>("age")?, 10);
-    assert_eq!(ud.get_named_user_value::<_, Value>("nonexist")?, Value::Nil);
+    assert_eq!(ud.get_named_user_value::<String>("name")?, "alex");
+    assert_eq!(ud.get_named_user_value::<i32>("age")?, 10);
+    assert_eq!(ud.get_named_user_value::<Value>("nonexist")?, Value::Nil);
 
     Ok(())
 }
@@ -529,7 +548,7 @@ fn test_metatable() -> Result<()> {
         fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
             methods.add_function("my_type_name", |_, data: AnyUserData| {
                 let metatable = data.get_metatable()?;
-                metatable.get::<_, String>("__type_name")
+                metatable.get::<String>("__type_name")
             });
         }
     }
@@ -547,7 +566,7 @@ fn test_metatable() -> Result<()> {
     let ud: AnyUserData = globals.get("ud")?;
     let metatable = ud.get_metatable()?;
 
-    match metatable.get::<_, Value>("__gc") {
+    match metatable.get::<Value>("__gc") {
         Ok(_) => panic!("expected MetaMethodRestricted, got no error"),
         Err(Error::MetaMethodRestricted(_)) => {}
         Err(e) => panic!("expected MetaMethodRestricted, got {:?}", e),
@@ -561,11 +580,10 @@ fn test_metatable() -> Result<()> {
 
     let mut methods = metatable
         .pairs()
-        .into_iter()
         .map(|kv: Result<(_, Value)>| Ok(kv?.0))
         .collect::<Result<Vec<_>>>()?;
-    methods.sort_by_cached_key(|k| k.name().to_owned());
-    assert_eq!(methods, vec![MetaMethod::Index, "__type_name".into()]);
+    methods.sort();
+    assert_eq!(methods, vec!["__index", "__type_name"]);
 
     #[derive(Copy, Clone)]
     struct MyUserData2(i64);
@@ -653,6 +671,171 @@ fn test_userdata_wrapped() -> Result<()> {
     lua.gc_collect()?;
     assert_eq!(Arc::strong_count(&ud2), 1);
     assert_eq!(Arc::strong_count(&ud3), 1);
+
+    Ok(())
+}
+
+#[test]
+fn test_userdata_proxy() -> Result<()> {
+    struct MyUserData(i64);
+
+    impl UserData for MyUserData {
+        fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
+            fields.add_field_function_get("static_field", |_, _| Ok(123));
+            fields.add_field_method_get("n", |_, this| Ok(this.0));
+        }
+
+        fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+            methods.add_function("new", |_, n| Ok(Self(n)));
+
+            methods.add_method("plus", |_, this, n: i64| Ok(this.0 + n));
+        }
+    }
+
+    let lua = Lua::new();
+    let globals = lua.globals();
+    globals.set("MyUserData", lua.create_proxy::<MyUserData>()?)?;
+
+    lua.load(
+        r#"
+        assert(MyUserData.static_field == 123)
+        local data = MyUserData.new(321)
+        assert(data.static_field == 123)
+        assert(data.n == 321)
+        assert(data:plus(1) == 322)
+
+        -- Error when accessing the proxy object fields and methods that require instance
+
+        local ok = pcall(function() return MyUserData.n end)
+        assert(not ok)
+
+        ok = pcall(function() return MyUserData:plus(1) end)
+        assert(not ok)
+    "#,
+    )
+    .exec()
+}
+
+#[test]
+fn test_any_userdata() -> Result<()> {
+    let lua = Lua::new();
+
+    lua.register_userdata_type::<StdString>(|reg| {
+        reg.add_method("get", |_, this, ()| Ok(this.clone()));
+        reg.add_method_mut("concat", |_, this, s: String| {
+            this.push_str(&s.to_string_lossy());
+            Ok(())
+        });
+    })?;
+
+    let ud = lua.create_any_userdata("hello".to_string())?;
+    assert_eq!(&*ud.borrow::<StdString>()?, "hello");
+
+    lua.globals().set("ud", ud)?;
+    lua.load(
+        r#"
+        assert(ud:get() == "hello")
+        ud:concat(", world")
+        assert(ud:get() == "hello, world")
+    "#,
+    )
+    .exec()
+    .unwrap();
+
+    Ok(())
+}
+
+#[test]
+fn test_userdata_ext() -> Result<()> {
+    let lua = Lua::new();
+
+    #[derive(Clone, Copy)]
+    struct MyUserData(u32);
+
+    impl UserData for MyUserData {
+        fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
+            fields.add_field_method_get("n", |_, this| Ok(this.0));
+            fields.add_field_method_set("n", |_, this, val| {
+                this.0 = val;
+                Ok(())
+            });
+        }
+
+        fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+            methods.add_meta_method(MetaMethod::Call, |_, _this, ()| Ok("called"));
+            methods.add_method_mut("add", |_, this, x: u32| {
+                this.0 += x;
+                Ok(())
+            });
+        }
+    }
+
+    let ud = lua.create_userdata(MyUserData(123))?;
+
+    assert_eq!(ud.get::<_, u32>("n")?, 123);
+    ud.set("n", 321)?;
+    assert_eq!(ud.get::<_, u32>("n")?, 321);
+    match ud.get::<_, u32>("non-existent") {
+        Err(Error::RuntimeError(_)) => {}
+        r => panic!("expected RuntimeError, got {r:?}"),
+    }
+    match ud.set::<_, u32>("non-existent", 123) {
+        Err(Error::RuntimeError(_)) => {}
+        r => panic!("expected RuntimeError, got {r:?}"),
+    }
+
+    assert_eq!(ud.call::<_, String>(())?, "called");
+
+    ud.call_method("add", 2)?;
+    assert_eq!(ud.get::<_, u32>("n")?, 323);
+
+    Ok(())
+}
+
+#[test]
+fn test_userdata_method_errors() -> Result<()> {
+    struct MyUserData(i64);
+
+    impl UserData for MyUserData {
+        fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+            methods.add_method("get_value", |_, data, ()| Ok(data.0));
+        }
+    }
+
+    let lua = Lua::new();
+
+    let ud = lua.create_userdata(MyUserData(123))?;
+    let res = ud.call_function::<_, ()>("get_value", ());
+    let Err(Error::CallbackError { cause, .. }) = res else {
+        panic!("expected CallbackError, got {res:?}");
+    };
+    assert!(matches!(
+        &*cause,
+        Error::BadArgument {
+            to,
+            name,
+            ..
+        } if to.as_deref() == Some("MyUserData.get_value") && name.as_deref() == Some("self")
+    ));
+
+    Ok(())
+}
+
+#[cfg(all(feature = "unstable", not(feature = "send")))]
+#[test]
+fn test_owned_userdata() -> Result<()> {
+    let lua = Lua::new();
+
+    let ud = lua.create_any_userdata("abc")?.into_owned();
+    drop(lua);
+
+    assert_eq!(*ud.borrow::<&str>()?, "abc");
+    *ud.borrow_mut()? = "cba";
+    assert!(matches!(
+        ud.borrow::<i64>(),
+        Err(Error::UserDataTypeMismatch)
+    ));
+    assert_eq!(ud.take::<&str>()?, "cba");
 
     Ok(())
 }

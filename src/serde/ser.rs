@@ -4,13 +4,12 @@ use serde::{ser, Serialize};
 
 use super::LuaSerdeExt;
 use crate::error::{Error, Result};
-use crate::ffi;
 use crate::lua::Lua;
 use crate::string::String;
 use crate::table::Table;
 use crate::types::Integer;
 use crate::util::{check_stack, StackGuard};
-use crate::value::{ToLua, Value};
+use crate::value::{IntoLua, Value};
 
 /// A struct for serializing Rust values into Lua values.
 #[derive(Debug)]
@@ -110,7 +109,7 @@ macro_rules! lua_serialize_number {
     ($name:ident, $t:ty) => {
         #[inline]
         fn $name(self, value: $t) -> Result<Value<'lua>> {
-            value.to_lua(self.lua)
+            value.into_lua(self.lua)
         }
     };
 }
@@ -320,20 +319,21 @@ impl<'lua> ser::SerializeSeq for SerializeVec<'lua> {
         T: Serialize + ?Sized,
     {
         let lua = self.table.0.lua;
+        let state = lua.state();
         let value = lua.to_value_with(value, self.options)?;
         unsafe {
-            let _sg = StackGuard::new(lua.state);
-            check_stack(lua.state, 4)?;
+            let _sg = StackGuard::new(state);
+            check_stack(state, 4)?;
 
             lua.push_ref(&self.table.0);
             lua.push_value(value)?;
             if lua.unlikely_memory_error() {
-                let len = ffi::lua_rawlen(lua.state, -2) as Integer;
-                ffi::lua_rawseti(lua.state, -2, len + 1);
-                ffi::lua_pop(lua.state, 1);
+                let len = ffi::lua_rawlen(state, -2) as Integer;
+                ffi::lua_rawseti(state, -2, len + 1);
+                ffi::lua_pop(state, 1);
                 Ok(())
             } else {
-                protect_lua!(lua.state, 2, 0, fn(state) {
+                protect_lua!(state, 2, 0, fn(state) {
                     let len = ffi::lua_rawlen(state, -2) as Integer;
                     ffi::lua_rawseti(state, -2, len + 1);
                 })

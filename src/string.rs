@@ -1,7 +1,8 @@
 use std::borrow::{Borrow, Cow};
 use std::hash::{Hash, Hasher};
+use std::os::raw::c_void;
 use std::string::String as StdString;
-use std::{slice, str};
+use std::{fmt, slice, str};
 
 #[cfg(feature = "serialize")]
 use {
@@ -10,15 +11,34 @@ use {
 };
 
 use crate::error::{Error, Result};
-use crate::ffi;
 use crate::types::LuaRef;
-use crate::util::{assert_stack, StackGuard};
 
 /// Handle to an internal Lua string.
 ///
 /// Unlike Rust strings, Lua strings may not be valid UTF-8.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct String<'lua>(pub(crate) LuaRef<'lua>);
+
+/// Owned handle to an internal Lua string.
+///
+/// The owned handle holds a *strong* reference to the current Lua instance.
+/// Be warned, if you place it into a Lua type (eg. [`UserData`] or a Rust callback), it is *very easy*
+/// to accidentally cause reference cycles that would prevent destroying Lua instance.
+///
+/// [`UserData`]: crate::UserData
+#[cfg(feature = "unstable")]
+#[cfg_attr(docsrs, doc(cfg(feature = "unstable")))]
+#[derive(Clone)]
+pub struct OwnedString(pub(crate) crate::types::LuaOwnedRef);
+
+#[cfg(feature = "unstable")]
+impl OwnedString {
+    /// Get borrowed handle to the underlying Lua string.
+    #[cfg_attr(feature = "send", allow(unused))]
+    pub const fn to_ref(&self) -> String {
+        String(self.0.to_ref())
+    }
+}
 
 impl<'lua> String<'lua> {
     /// Get a `&str` slice if the Lua string is valid UTF-8.
@@ -39,6 +59,7 @@ impl<'lua> String<'lua> {
     /// # Ok(())
     /// # }
     /// ```
+    #[inline]
     pub fn to_str(&self) -> Result<&str> {
         str::from_utf8(self.as_bytes()).map_err(|e| Error::FromLuaConversionError {
             from: "string",
@@ -65,6 +86,7 @@ impl<'lua> String<'lua> {
     /// # Ok(())
     /// # }
     /// ```
+    #[inline]
     pub fn to_string_lossy(&self) -> Cow<'_, str> {
         StdString::from_utf8_lossy(self.as_bytes())
     }
@@ -86,6 +108,7 @@ impl<'lua> String<'lua> {
     /// # Ok(())
     /// # }
     /// ```
+    #[inline]
     pub fn as_bytes(&self) -> &[u8] {
         let nulled = self.as_bytes_with_nul();
         &nulled[..nulled.len() - 1]
@@ -93,24 +116,68 @@ impl<'lua> String<'lua> {
 
     /// Get the bytes that make up this string, including the trailing nul byte.
     pub fn as_bytes_with_nul(&self) -> &[u8] {
-        let lua = self.0.lua;
+        let ref_thread = self.0.lua.ref_thread();
         unsafe {
-            let _sg = StackGuard::new(lua.state);
-            assert_stack(lua.state, 1);
-
-            lua.push_ref(&self.0);
             mlua_debug_assert!(
-                ffi::lua_type(lua.state, -1) == ffi::LUA_TSTRING,
+                ffi::lua_type(ref_thread, self.0.index) == ffi::LUA_TSTRING,
                 "string ref is not string type"
             );
 
             let mut size = 0;
             // This will not trigger a 'm' error, because the reference is guaranteed to be of
             // string type
-            let data = ffi::lua_tolstring(lua.state, -1, &mut size);
+            let data = ffi::lua_tolstring(ref_thread, self.0.index, &mut size);
 
             slice::from_raw_parts(data as *const u8, size + 1)
         }
+    }
+
+    /// Converts the string to a generic C pointer.
+    ///
+    /// There is no way to convert the pointer back to its original value.
+    ///
+    /// Typically this function is used only for hashing and debug information.
+    #[inline]
+    pub fn to_pointer(&self) -> *const c_void {
+        let ref_thread = self.0.lua.ref_thread();
+        unsafe { ffi::lua_topointer(ref_thread, self.0.index) }
+    }
+
+    /// Convert this handle to owned version.
+    #[cfg(all(feature = "unstable", any(not(feature = "send"), doc)))]
+    #[cfg_attr(docsrs, doc(cfg(all(feature = "unstable", not(feature = "send")))))]
+    #[inline]
+    pub fn into_owned(self) -> OwnedString {
+        OwnedString(self.0.into_owned())
+    }
+}
+
+impl<'lua> fmt::Debug for String<'lua> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let bytes = self.as_bytes();
+        // Check if the string is valid utf8
+        if let Ok(s) = str::from_utf8(bytes) {
+            return s.fmt(f);
+        }
+
+        // Format as bytes
+        write!(f, "b\"")?;
+        for &b in bytes {
+            // https://doc.rust-lang.org/reference/tokens.html#byte-escapes
+            match b {
+                b'\n' => write!(f, "\\n")?,
+                b'\r' => write!(f, "\\r")?,
+                b'\t' => write!(f, "\\t")?,
+                b'\\' | b'"' => write!(f, "\\{}", b as char)?,
+                b'\0' => write!(f, "\\0")?,
+                // ASCII printable
+                0x20..=0x7e => write!(f, "{}", b as char)?,
+                _ => write!(f, "\\x{b:02x}")?,
+            }
+        }
+        write!(f, "\"")?;
+
+        Ok(())
     }
 }
 
@@ -136,7 +203,7 @@ impl<'lua> Borrow<[u8]> for String<'lua> {
 // in other ways.
 impl<'lua, T> PartialEq<T> for String<'lua>
 where
-    T: AsRef<[u8]>,
+    T: AsRef<[u8]> + ?Sized,
 {
     fn eq(&self, other: &T) -> bool {
         self.as_bytes() == other.as_ref()
@@ -162,4 +229,42 @@ impl<'lua> Serialize for String<'lua> {
             Err(_) => serializer.serialize_bytes(self.as_bytes()),
         }
     }
+}
+
+// Additional shortcuts
+#[cfg(feature = "unstable")]
+impl OwnedString {
+    /// Get a `&str` slice if the Lua string is valid UTF-8.
+    ///
+    /// This is a shortcut for [`String::to_str()`].
+    #[inline]
+    pub fn to_str(&self) -> Result<&str> {
+        let s = self.to_ref();
+        // Reattach lifetime to &self
+        unsafe { std::mem::transmute(s.to_str()) }
+    }
+
+    /// Get the bytes that make up this string.
+    ///
+    /// This is a shortcut for [`String::as_bytes()`].
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8] {
+        let s = self.to_ref();
+        // Reattach lifetime to &self
+        unsafe { std::mem::transmute(s.as_bytes()) }
+    }
+}
+
+#[cfg(feature = "unstable")]
+impl fmt::Debug for OwnedString {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.to_ref().fmt(f)
+    }
+}
+
+#[cfg(test)]
+mod assertions {
+    use super::*;
+
+    static_assertions::assert_not_impl_any!(String: Send);
 }

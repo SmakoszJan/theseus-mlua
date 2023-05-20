@@ -1,6 +1,10 @@
+use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::iter::{self, FromIterator};
+use std::ops::Index;
 use std::os::raw::c_void;
-use std::{ptr, slice, str, vec};
+use std::sync::Arc;
+use std::{fmt, ptr, slice, str, vec};
 
 #[cfg(feature = "serialize")]
 use {
@@ -10,7 +14,6 @@ use {
 };
 
 use crate::error::{Error, Result};
-use crate::ffi;
 use crate::function::Function;
 use crate::lua::Lua;
 use crate::string::String;
@@ -22,7 +25,7 @@ use crate::userdata::AnyUserData;
 /// A dynamically typed Lua value. The `String`, `Table`, `Function`, `Thread`, and `UserData`
 /// variants contain handle types into the internal Lua state. It is a logic error to mix handle
 /// types between separate `Lua` instances, and doing so will result in a panic.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Value<'lua> {
     /// The Lua value `nil`.
     Nil,
@@ -60,6 +63,12 @@ pub enum Value<'lua> {
 pub use self::Value::Nil;
 
 impl<'lua> Value<'lua> {
+    /// A special value (lightuserdata) to represent null value.
+    ///
+    /// It can be used in Lua tables without downsides of `nil`.
+    pub const NULL: Value<'static> = Value::LightUserData(LightUserData(ptr::null_mut()));
+
+    /// Returns type name of this value.
     pub const fn type_name(&self) -> &'static str {
         match *self {
             Value::Nil => "nil",
@@ -92,7 +101,7 @@ impl<'lua> Value<'lua> {
         match (self, other.as_ref()) {
             (Value::Table(a), Value::Table(b)) => a.equals(b),
             (Value::UserData(a), Value::UserData(b)) => a.equals(b),
-            _ => Ok(self == other.as_ref()),
+            (a, b) => Ok(a == b),
         }
     }
 
@@ -103,19 +112,113 @@ impl<'lua> Value<'lua> {
     /// There is no way to convert the pointer back to its original value.
     ///
     /// Typically this function is used only for hashing and debug information.
+    #[inline]
     pub fn to_pointer(&self) -> *const c_void {
         unsafe {
             match self {
                 Value::LightUserData(ud) => ud.0,
-                Value::String(String(v))
-                | Value::Table(Table(v))
-                | Value::Function(Function(v))
-                | Value::Thread(Thread(v))
-                | Value::UserData(AnyUserData(v)) => v
-                    .lua
-                    .ref_thread_exec(|refthr| ffi::lua_topointer(refthr, v.index)),
+                Value::Table(t) => t.to_pointer(),
+                Value::String(s) => s.to_pointer(),
+                Value::Function(Function(r))
+                | Value::Thread(Thread(r))
+                | Value::UserData(AnyUserData(r)) => {
+                    ffi::lua_topointer(r.lua.ref_thread(), r.index)
+                }
                 _ => ptr::null(),
             }
+        }
+    }
+
+    // Compares two values.
+    // Used to sort values for Debug printing.
+    pub(crate) fn cmp(&self, other: &Self) -> Ordering {
+        fn cmp_num(a: Number, b: Number) -> Ordering {
+            match (a, b) {
+                _ if a < b => Ordering::Less,
+                _ if a > b => Ordering::Greater,
+                _ => Ordering::Equal,
+            }
+        }
+
+        match (self, other) {
+            // Nil
+            (Value::Nil, Value::Nil) => Ordering::Equal,
+            (Value::Nil, _) => Ordering::Less,
+            (_, Value::Nil) => Ordering::Greater,
+            // Null (a special case)
+            (Value::LightUserData(ud1), Value::LightUserData(ud2)) if ud1 == ud2 => Ordering::Equal,
+            (Value::LightUserData(ud1), _) if ud1.0.is_null() => Ordering::Less,
+            (_, Value::LightUserData(ud2)) if ud2.0.is_null() => Ordering::Greater,
+            // Boolean
+            (Value::Boolean(a), Value::Boolean(b)) => a.cmp(b),
+            (Value::Boolean(_), _) => Ordering::Less,
+            (_, Value::Boolean(_)) => Ordering::Greater,
+            // Integer && Number
+            (Value::Integer(a), Value::Integer(b)) => a.cmp(b),
+            (&Value::Integer(a), &Value::Number(b)) => cmp_num(a as Number, b),
+            (&Value::Number(a), &Value::Integer(b)) => cmp_num(a, b as Number),
+            (&Value::Number(a), &Value::Number(b)) => cmp_num(a, b),
+            (Value::Integer(_) | Value::Number(_), _) => Ordering::Less,
+            (_, Value::Integer(_) | Value::Number(_)) => Ordering::Greater,
+            // String
+            (Value::String(a), Value::String(b)) => a.as_bytes().cmp(b.as_bytes()),
+            (Value::String(_), _) => Ordering::Less,
+            (_, Value::String(_)) => Ordering::Greater,
+            // Other variants can be randomly ordered
+            (a, b) => a.to_pointer().cmp(&b.to_pointer()),
+        }
+    }
+
+    pub(crate) fn fmt_pretty(
+        &self,
+        fmt: &mut fmt::Formatter,
+        recursive: bool,
+        ident: usize,
+        visited: &mut HashSet<*const c_void>,
+    ) -> fmt::Result {
+        match self {
+            Value::Nil => write!(fmt, "nil"),
+            Value::Boolean(b) => write!(fmt, "{b}"),
+            Value::LightUserData(ud) if ud.0.is_null() => write!(fmt, "null"),
+            Value::LightUserData(ud) => write!(fmt, "<lightuserdata {:?}>", ud.0),
+            Value::Integer(i) => write!(fmt, "{i}"),
+            Value::Number(n) => write!(fmt, "{n}"),
+            #[cfg(feature = "luau")]
+            Value::Vector(x, y, z) => write!(fmt, "vector({x}, {y}, {z})"),
+            Value::String(s) => write!(fmt, "{s:?}"),
+            Value::Table(t) if recursive && !visited.contains(&t.to_pointer()) => {
+                t.fmt_pretty(fmt, ident, visited)
+            }
+            t @ Value::Table(_) => write!(fmt, "<table {:?}>", t.to_pointer()),
+            f @ Value::Function(_) => write!(fmt, "<function {:?}>", f.to_pointer()),
+            t @ Value::Thread(_) => write!(fmt, "<thread {:?}>", t.to_pointer()),
+            // TODO: Show type name for registered userdata
+            u @ Value::UserData(_) => write!(fmt, "<userdata {:?}>", u.to_pointer()),
+            Value::Error(e) if recursive => write!(fmt, "{e:?}"),
+            Value::Error(_) => write!(fmt, "<error>"),
+        }
+    }
+}
+
+impl fmt::Debug for Value<'_> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        if fmt.alternate() {
+            return self.fmt_pretty(fmt, true, 0, &mut HashSet::new());
+        }
+        match self {
+            Value::Nil => write!(fmt, "Nil"),
+            Value::Boolean(b) => write!(fmt, "Boolean({b})"),
+            Value::LightUserData(ud) => write!(fmt, "{ud:?}"),
+            Value::Integer(i) => write!(fmt, "Integer({i})"),
+            Value::Number(n) => write!(fmt, "Number({n})"),
+            #[cfg(feature = "luau")]
+            Value::Vector(x, y, z) => write!(fmt, "Vector({x}, {y}, {z})"),
+            Value::String(s) => write!(fmt, "String({s:?})"),
+            Value::Table(t) => write!(fmt, "{t:?}"),
+            Value::Function(f) => write!(fmt, "{f:?}"),
+            Value::Thread(t) => write!(fmt, "{t:?}"),
+            Value::UserData(ud) => write!(fmt, "{ud:?}"),
+            Value::Error(e) => write!(fmt, "Error({e:?})"),
         }
     }
 }
@@ -160,8 +263,7 @@ impl<'lua> Serialize for Value<'lua> {
             Value::Boolean(b) => serializer.serialize_bool(*b),
             #[allow(clippy::useless_conversion)]
             Value::Integer(i) => serializer
-                .serialize_i64((*i).try_into().expect("cannot convert lua_Integer to i64")),
-            #[allow(clippy::useless_conversion)]
+                .serialize_i64((*i).try_into().expect("cannot convert Lua Integer to i64")),
             Value::Number(n) => serializer.serialize_f64(*n),
             #[cfg(feature = "luau")]
             Value::Vector(x, y, z) => (x, y, z).serialize(serializer),
@@ -178,15 +280,34 @@ impl<'lua> Serialize for Value<'lua> {
 }
 
 /// Trait for types convertible to `Value`.
-pub trait ToLua<'lua> {
+pub trait IntoLua<'lua> {
     /// Performs the conversion.
-    fn to_lua(self, lua: &'lua Lua) -> Result<Value<'lua>>;
+    fn into_lua(self, lua: &'lua Lua) -> Result<Value<'lua>>;
 }
 
 /// Trait for types convertible from `Value`.
 pub trait FromLua<'lua>: Sized {
     /// Performs the conversion.
-    fn from_lua(lua_value: Value<'lua>, lua: &'lua Lua) -> Result<Self>;
+    fn from_lua(value: Value<'lua>, lua: &'lua Lua) -> Result<Self>;
+
+    /// Performs the conversion for an argument (eg. function argument).
+    ///
+    /// `i` is the argument index (position),
+    /// `to` is a function name that received the argument.
+    #[doc(hidden)]
+    fn from_lua_arg(
+        value: Value<'lua>,
+        i: usize,
+        to: Option<&str>,
+        lua: &'lua Lua,
+    ) -> Result<Self> {
+        Self::from_lua(value, lua).map_err(|err| Error::BadArgument {
+            to: to.map(|s| s.to_string()),
+            pos: i,
+            name: None,
+            cause: Arc::new(err),
+        })
+    }
 }
 
 /// Multiple Lua values used for both argument passing and also for multiple return values.
@@ -195,15 +316,20 @@ pub struct MultiValue<'lua>(Vec<Value<'lua>>);
 
 impl<'lua> MultiValue<'lua> {
     /// Creates an empty `MultiValue` containing no values.
-    #[inline]
     pub const fn new() -> MultiValue<'lua> {
         MultiValue(Vec::new())
     }
 
     /// Similar to `new` but can return previously used container with allocated capacity.
     #[inline]
-    pub(crate) fn new_or_cached(lua: &'lua Lua) -> MultiValue<'lua> {
-        lua.new_or_cached_multivalue()
+    pub(crate) fn new_or_pooled(lua: &'lua Lua) -> MultiValue<'lua> {
+        lua.new_multivalue_from_pool()
+    }
+
+    /// Clears and returns previously allocated multivalue container to the pool.
+    #[inline]
+    pub(crate) fn return_to_pool(multivalue: Self, lua: &Lua) {
+        lua.return_multivalue_to_pool(multivalue);
     }
 }
 
@@ -237,7 +363,24 @@ impl<'a, 'lua> IntoIterator for &'a MultiValue<'lua> {
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
-        (&self.0).iter().rev()
+        self.0.iter().rev()
+    }
+}
+
+impl<'lua> Index<usize> for MultiValue<'lua> {
+    type Output = Value<'lua>;
+
+    #[inline]
+    fn index(&self, index: usize) -> &Self::Output {
+        if let Some(result) = self.get(index) {
+            result
+        } else {
+            panic!(
+                "index out of bounds: the len is {} but the index is {}",
+                self.len(),
+                index
+            )
+        }
     }
 }
 
@@ -256,18 +399,26 @@ impl<'lua> MultiValue<'lua> {
     }
 
     #[inline]
+    pub fn get(&self, index: usize) -> Option<&Value<'lua>> {
+        if index < self.0.len() {
+            return self.0.get(self.0.len() - index - 1);
+        }
+        None
+    }
+
+    #[inline]
     pub(crate) fn reserve(&mut self, size: usize) {
         self.0.reserve(size);
     }
 
     #[inline]
-    pub(crate) fn push_front(&mut self, value: Value<'lua>) {
-        self.0.push(value);
+    pub fn pop_front(&mut self) -> Option<Value<'lua>> {
+        self.0.pop()
     }
 
     #[inline]
-    pub(crate) fn pop_front(&mut self) -> Option<Value<'lua>> {
-        self.0.pop()
+    pub fn push_front(&mut self, value: Value<'lua>) {
+        self.0.push(value);
     }
 
     #[inline]
@@ -311,11 +462,11 @@ impl<'lua> MultiValue<'lua> {
 
 /// Trait for types convertible to any number of Lua values.
 ///
-/// This is a generalization of `ToLua`, allowing any number of resulting Lua values instead of just
-/// one. Any type that implements `ToLua` will automatically implement this trait.
-pub trait ToLuaMulti<'lua> {
+/// This is a generalization of `IntoLua`, allowing any number of resulting Lua values instead of just
+/// one. Any type that implements `IntoLua` will automatically implement this trait.
+pub trait IntoLuaMulti<'lua> {
     /// Performs the conversion.
-    fn to_lua_multi(self, lua: &'lua Lua) -> Result<MultiValue<'lua>>;
+    fn into_lua_multi(self, lua: &'lua Lua) -> Result<MultiValue<'lua>>;
 }
 
 /// Trait for types that can be created from an arbitrary number of Lua values.
@@ -330,4 +481,28 @@ pub trait FromLuaMulti<'lua>: Sized {
     /// assigning values. Similarly, if not enough values are given, conversions should assume that
     /// any missing values are nil.
     fn from_lua_multi(values: MultiValue<'lua>, lua: &'lua Lua) -> Result<Self>;
+
+    /// Performs the conversion for a list of arguments.
+    ///
+    /// `i` is an index (position) of the first argument,
+    /// `to` is a function name that received the arguments.
+    #[doc(hidden)]
+    #[inline]
+    fn from_lua_multi_args(
+        values: MultiValue<'lua>,
+        i: usize,
+        to: Option<&str>,
+        lua: &'lua Lua,
+    ) -> Result<Self> {
+        let _ = (i, to);
+        Self::from_lua_multi(values, lua)
+    }
+}
+
+#[cfg(test)]
+mod assertions {
+    use super::*;
+
+    static_assertions::assert_not_impl_any!(Value: Send);
+    static_assertions::assert_not_impl_any!(MultiValue: Send);
 }

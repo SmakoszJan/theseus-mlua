@@ -7,12 +7,15 @@ use std::ptr;
 // Option for multiple returns in 'lua_pcall' and 'lua_call'
 pub const LUA_MULTRET: c_int = -1;
 
+// Max number of Lua stack slots
+const LUAI_MAXCSTACK: c_int = 100000;
+
 //
 // Pseudo-indices
 //
-pub const LUA_REGISTRYINDEX: c_int = -10000;
-pub const LUA_ENVIRONINDEX: c_int = -10001;
-pub const LUA_GLOBALSINDEX: c_int = -10002;
+pub const LUA_REGISTRYINDEX: c_int = -LUAI_MAXCSTACK - 2000;
+pub const LUA_ENVIRONINDEX: c_int = -LUAI_MAXCSTACK - 2001;
+pub const LUA_GLOBALSINDEX: c_int = -LUAI_MAXCSTACK - 2002;
 
 pub const fn lua_upvalueindex(i: c_int) -> c_int {
     LUA_GLOBALSINDEX - i
@@ -71,6 +74,7 @@ pub type lua_Continuation = unsafe extern "C" fn(L: *mut lua_State, status: c_in
 
 /// Type for userdata destructor functions.
 pub type lua_Udestructor = unsafe extern "C" fn(*mut c_void);
+pub type lua_Destructor = unsafe extern "C" fn(L: *mut lua_State, *mut c_void);
 
 /// Type for memory-allocation functions.
 pub type lua_Alloc = unsafe extern "C" fn(
@@ -257,15 +261,15 @@ extern "C" {
 extern "C" {
     pub fn lua_error(L: *mut lua_State) -> !;
     pub fn lua_next(L: *mut lua_State, idx: c_int) -> c_int;
+    pub fn lua_rawiter(L: *mut lua_State, idx: c_int, iter: c_int) -> c_int;
     pub fn lua_concat(L: *mut lua_State, n: c_int);
     // TODO: lua_encodepointer
     pub fn lua_clock() -> c_double;
-    pub fn lua_setuserdatadtor(
-        L: *mut lua_State,
-        tag: c_int,
-        dtor: Option<unsafe extern "C" fn(*mut lua_State, *mut c_void)>,
-    );
+    pub fn lua_setuserdatatag(L: *mut lua_State, idx: c_int, tag: c_int);
+    pub fn lua_setuserdatadtor(L: *mut lua_State, tag: c_int, dtor: Option<lua_Destructor>);
+    pub fn lua_getuserdatadtor(L: *mut lua_State, tag: c_int) -> Option<lua_Destructor>;
     pub fn lua_clonefunction(L: *mut lua_State, idx: c_int);
+    pub fn lua_cleartable(L: *mut lua_State, idx: c_int);
 }
 
 //
@@ -437,7 +441,12 @@ extern "C" {
     pub fn lua_setupvalue(L: *mut lua_State, funcindex: c_int, n: c_int) -> *const c_char;
 
     pub fn lua_singlestep(L: *mut lua_State, enabled: c_int);
-    pub fn lua_breakpoint(L: *mut lua_State, funcindex: c_int, line: c_int, enabled: c_int);
+    pub fn lua_breakpoint(
+        L: *mut lua_State,
+        funcindex: c_int,
+        line: c_int,
+        enabled: c_int,
+    ) -> c_int;
 
     pub fn lua_getcoverage(
         L: *mut lua_State,
@@ -454,13 +463,14 @@ pub struct lua_Debug {
     pub name: *const c_char,
     pub what: *const c_char,
     pub source: *const c_char,
+    pub short_src: *const c_char,
     pub linedefined: c_int,
     pub currentline: c_int,
     pub nupvals: u8,
     pub nparams: u8,
     pub isvararg: c_char,
-    pub short_src: [c_char; LUA_IDSIZE],
     pub userdata: *mut c_void,
+    pub ssbuf: [c_char; LUA_IDSIZE],
 }
 
 //

@@ -1,7 +1,9 @@
 #![cfg(feature = "luau")]
 
 use std::env;
+use std::fmt::Debug;
 use std::fs;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -15,8 +17,11 @@ fn test_require() -> Result<()> {
     fs::write(
         temp_dir.path().join("module.luau"),
         r#"
-        counter = counter or 0
-        return counter + 1
+        counter = (counter or 0) + 1
+        return {
+            counter = counter,
+            error = function() error("test") end,
+        }
     "#,
     )?;
 
@@ -24,9 +29,12 @@ fn test_require() -> Result<()> {
     lua.load(
         r#"
         local module = require("module")
-        assert(module == 1)
+        assert(module.counter == 1)
         module = require("module")
-        assert(module == 1)
+        assert(module.counter == 1)
+
+        local ok, err = pcall(module.error)
+        assert(not ok and string.find(err, "module.luau") ~= nil)
     "#,
     )
     .exec()
@@ -69,18 +77,33 @@ fn test_vectors() -> Result<()> {
 fn test_readonly_table() -> Result<()> {
     let lua = Lua::new();
 
-    let t = lua.create_table()?;
+    let t = lua.create_sequence_from([1])?;
     assert!(!t.is_readonly());
     t.set_readonly(true);
     assert!(t.is_readonly());
 
-    match t.set("key", "value") {
-        Err(Error::RuntimeError(err)) if err.contains("Attempt to modify a readonly table") => {}
-        r => panic!(
-            "expected RuntimeError(...) with a specific message, got {:?}",
-            r
-        ),
-    };
+    #[track_caller]
+    fn check_readonly_error<T: Debug>(res: Result<T>) {
+        match res {
+            Err(Error::RuntimeError(e)) if e.contains("attempt to modify a readonly table") => {}
+            r => panic!("expected RuntimeError(...) with a specific message, got {r:?}"),
+        }
+    }
+
+    check_readonly_error(t.set("key", "value"));
+    check_readonly_error(t.raw_set("key", "value"));
+    check_readonly_error(t.raw_insert(1, "value"));
+    check_readonly_error(t.raw_remove(1));
+    check_readonly_error(t.push("value"));
+    check_readonly_error(t.pop::<Value>());
+    check_readonly_error(t.raw_push("value"));
+    check_readonly_error(t.raw_pop::<Value>());
+
+    // Special case
+    match catch_unwind(AssertUnwindSafe(|| t.set_metatable(None))) {
+        Ok(_) => panic!("expected panic, got nothing"),
+        Err(_) => {}
+    }
 
     Ok(())
 }
@@ -150,7 +173,7 @@ fn test_interrupts() -> Result<()> {
     let interrupts_count = Arc::new(AtomicU64::new(0));
     let interrupts_count2 = interrupts_count.clone();
 
-    lua.set_interrupt(move || {
+    lua.set_interrupt(move |_| {
         interrupts_count2.fetch_add(1, Ordering::Relaxed);
         Ok(VmState::Continue)
     });
@@ -172,7 +195,7 @@ fn test_interrupts() -> Result<()> {
     //
     let yield_count = Arc::new(AtomicU64::new(0));
     let yield_count2 = yield_count.clone();
-    lua.set_interrupt(move || {
+    lua.set_interrupt(move |_| {
         if yield_count2.fetch_add(1, Ordering::Relaxed) == 1 {
             return Ok(VmState::Yield);
         }
@@ -199,7 +222,7 @@ fn test_interrupts() -> Result<()> {
     //
     // Test errors in interrupts
     //
-    lua.set_interrupt(|| Err(Error::RuntimeError("error from interrupt".into())));
+    lua.set_interrupt(|_| Err(Error::RuntimeError("error from interrupt".into())));
     match f.call::<_, ()>(()) {
         Err(Error::CallbackError { cause, .. }) => match *cause {
             Error::RuntimeError(ref m) if m == "error from interrupt" => {}
@@ -214,7 +237,7 @@ fn test_interrupts() -> Result<()> {
 }
 
 #[test]
-fn test_coverate() -> Result<()> {
+fn test_coverage() -> Result<()> {
     let lua = Lua::new();
 
     lua.set_compiler(Compiler::default().set_coverage_level(1));

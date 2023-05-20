@@ -42,10 +42,16 @@ fn test_bind() -> Result<()> {
     concat = concat.bind("foo")?;
     concat = concat.bind("bar")?;
     concat = concat.bind(("baz", "baf"))?;
+    assert_eq!(concat.call::<_, String>(())?, "foobarbazbaf");
     assert_eq!(
         concat.call::<_, String>(("hi", "wut"))?,
         "foobarbazbafhiwut"
     );
+
+    let mut concat2 = globals.get::<_, Function>("concat")?;
+    concat2 = concat2.bind(())?;
+    assert_eq!(concat2.call::<_, String>(())?, "");
+    assert_eq!(concat2.call::<_, String>(("ab", "cd"))?, "abcd");
 
     Ok(())
 }
@@ -120,7 +126,7 @@ fn test_function_info() -> Result<()> {
         end
     "#,
     )
-    .set_name("source1")?
+    .set_name("source1")
     .exec()?;
 
     let function1 = globals.get::<_, Function>("function1")?;
@@ -158,6 +164,80 @@ fn test_function_info() -> Result<()> {
     assert_eq!(print_info.source, Some(b"=[C]".to_vec()));
     assert_eq!(print_info.what, Some(b"C".to_vec()));
     assert_eq!(print_info.line_defined, -1);
+
+    Ok(())
+}
+
+#[test]
+fn test_function_wrap() -> Result<()> {
+    use mlua::Error;
+
+    let lua = Lua::new();
+
+    lua.globals()
+        .set("f", Function::wrap(|_, s: String| Ok(s)))?;
+    lua.load(r#"assert(f("hello") == "hello")"#).exec().unwrap();
+
+    let mut _i = false;
+    lua.globals().set(
+        "f",
+        Function::wrap_mut(move |lua, ()| {
+            _i = true;
+            lua.globals().get::<_, Function>("f")?.call::<_, ()>(())
+        }),
+    )?;
+    match lua.globals().get::<_, Function>("f")?.call::<_, ()>(()) {
+        Err(Error::CallbackError { ref cause, .. }) => match *cause.as_ref() {
+            Error::CallbackError { ref cause, .. } => match *cause.as_ref() {
+                Error::RecursiveMutCallback { .. } => {}
+                ref other => panic!("incorrect result: {other:?}"),
+            },
+            ref other => panic!("incorrect result: {other:?}"),
+        },
+        other => panic!("incorrect result: {other:?}"),
+    };
+
+    Ok(())
+}
+
+#[cfg(all(feature = "unstable", not(feature = "send")))]
+#[test]
+fn test_owned_function() -> Result<()> {
+    let lua = Lua::new();
+
+    let f = lua
+        .create_function(|_, ()| Ok("hello, world!"))?
+        .into_owned();
+    drop(lua);
+
+    // We still should be able to call the function despite Lua is dropped
+    let s = f.call::<_, String>(())?;
+    assert_eq!(s.to_string_lossy(), "hello, world!");
+
+    Ok(())
+}
+
+#[cfg(all(feature = "unstable", not(feature = "send")))]
+#[test]
+fn test_owned_function_drop() -> Result<()> {
+    let rc = std::sync::Arc::new(());
+
+    {
+        let lua = Lua::new();
+
+        lua.set_app_data(rc.clone());
+
+        let f1 = lua
+            .create_function(|_, ()| Ok("hello, world!"))?
+            .into_owned();
+        let f2 =
+            lua.create_function(move |_, ()| f1.to_ref().call::<_, std::string::String>(()))?;
+        assert_eq!(f2.call::<_, String>(())?.to_string_lossy(), "hello, world!");
+    }
+
+    // Check that Lua is properly destroyed
+    // It works because we collect garbage when Lua goes out of scope
+    assert_eq!(std::sync::Arc::strong_count(&rc), 1);
 
     Ok(())
 }

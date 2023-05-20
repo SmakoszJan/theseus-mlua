@@ -83,3 +83,37 @@ fn test_string_hash() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_string_debug() -> Result<()> {
+    let lua = Lua::new();
+
+    // Valid utf8
+    let s = lua.create_string("hello")?;
+    assert_eq!(format!("{s:?}"), r#""hello""#);
+
+    // Invalid utf8
+    let s = lua.create_string(b"hello\0world\r\n\t\xF0\x90\x80")?;
+    assert_eq!(format!("{s:?}"), r#"b"hello\0world\r\n\t\xf0\x90\x80""#);
+
+    Ok(())
+}
+
+#[cfg(all(feature = "unstable", not(feature = "send")))]
+#[test]
+fn test_owned_string() -> Result<()> {
+    let lua = Lua::new();
+
+    let s = lua.create_string("hello, world!")?.into_owned();
+    drop(lua);
+
+    // Shortcuts
+    assert_eq!(s.as_bytes(), b"hello, world!");
+    assert_eq!(s.to_str()?, "hello, world!");
+    assert_eq!(format!("{s:?}"), "\"hello, world!\"");
+
+    // Access via reference
+    assert_eq!(s.to_ref().to_string_lossy(), "hello, world!");
+
+    Ok(())
+}

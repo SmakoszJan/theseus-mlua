@@ -8,8 +8,8 @@ use rustc_hash::FxHashSet;
 use serde::de::{self, IntoDeserializer};
 
 use crate::error::{Error, Result};
-use crate::ffi;
 use crate::table::{Table, TablePairs, TableSequence};
+use crate::userdata::AnyUserData;
 use crate::value::Value;
 
 /// A struct for deserializing Lua values into Rust values.
@@ -72,7 +72,7 @@ impl Options {
     ///
     /// [`deny_recursive_tables`]: #structfield.deny_recursive_tables
     #[must_use]
-    pub fn deny_recursive_tables(mut self, enabled: bool) -> Self {
+    pub const fn deny_recursive_tables(mut self, enabled: bool) -> Self {
         self.deny_recursive_tables = enabled;
         self
     }
@@ -132,6 +132,9 @@ impl<'lua, 'de> serde::Deserializer<'de> for Deserializer<'lua> {
             Value::Table(ref t) if t.raw_len() > 0 || t.is_array() => self.deserialize_seq(visitor),
             Value::Table(_) => self.deserialize_map(visitor),
             Value::LightUserData(ud) if ud.0.is_null() => visitor.visit_none(),
+            Value::UserData(ud) if ud.is_serializable() => {
+                serde_userdata(ud, |value| value.deserialize_any(visitor))
+            }
             Value::Function(_)
             | Value::Thread(_)
             | Value::UserData(_)
@@ -164,8 +167,8 @@ impl<'lua, 'de> serde::Deserializer<'de> for Deserializer<'lua> {
     #[inline]
     fn deserialize_enum<V>(
         self,
-        _name: &str,
-        _variants: &'static [&'static str],
+        name: &'static str,
+        variants: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value>
     where
@@ -199,6 +202,9 @@ impl<'lua, 'de> serde::Deserializer<'de> for Deserializer<'lua> {
                 (variant, Some(value), Some(_guard))
             }
             Value::String(variant) => (variant.to_str()?.to_owned(), None, None),
+            Value::UserData(ud) if ud.is_serializable() => {
+                return serde_userdata(ud, |value| value.deserialize_enum(name, variants, visitor));
+            }
             _ => return Err(de::Error::custom("bad enum value")),
         };
 
@@ -244,6 +250,9 @@ impl<'lua, 'de> serde::Deserializer<'de> for Deserializer<'lua> {
                         &"fewer elements in the table",
                     ))
                 }
+            }
+            Value::UserData(ud) if ud.is_serializable() => {
+                serde_userdata(ud, |value| value.deserialize_seq(visitor))
             }
             value => Err(de::Error::invalid_type(
                 de::Unexpected::Other(value.type_name()),
@@ -300,6 +309,9 @@ impl<'lua, 'de> serde::Deserializer<'de> for Deserializer<'lua> {
                     ))
                 }
             }
+            Value::UserData(ud) if ud.is_serializable() => {
+                serde_userdata(ud, |value| value.deserialize_map(visitor))
+            }
             value => Err(de::Error::invalid_type(
                 de::Unexpected::Other(value.type_name()),
                 &"table",
@@ -321,16 +333,43 @@ impl<'lua, 'de> serde::Deserializer<'de> for Deserializer<'lua> {
     }
 
     #[inline]
-    fn deserialize_newtype_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value>
+    fn deserialize_newtype_struct<V>(self, name: &'static str, visitor: V) -> Result<V::Value>
     where
         V: de::Visitor<'de>,
     {
-        visitor.visit_newtype_struct(self)
+        match self.value {
+            Value::UserData(ud) if ud.is_serializable() => {
+                serde_userdata(ud, |value| value.deserialize_newtype_struct(name, visitor))
+            }
+            _ => visitor.visit_newtype_struct(self),
+        }
+    }
+
+    #[inline]
+    fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value>
+    where
+        V: de::Visitor<'de>,
+    {
+        match self.value {
+            Value::LightUserData(ud) if ud.0.is_null() => visitor.visit_unit(),
+            _ => self.deserialize_any(visitor),
+        }
+    }
+
+    #[inline]
+    fn deserialize_unit_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value>
+    where
+        V: de::Visitor<'de>,
+    {
+        match self.value {
+            Value::LightUserData(ud) if ud.0.is_null() => visitor.visit_unit(),
+            _ => self.deserialize_any(visitor),
+        }
     }
 
     serde::forward_to_deserialize_any! {
         bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string bytes
-        byte_buf unit unit_struct identifier ignored_any
+        byte_buf identifier ignored_any
     }
 }
 
@@ -563,9 +602,7 @@ impl RecursionGuard {
     #[inline]
     fn new(table: &Table, visited: &Rc<RefCell<FxHashSet<*const c_void>>>) -> Self {
         let visited = Rc::clone(visited);
-        let lua = table.0.lua;
-        let ptr =
-            unsafe { lua.ref_thread_exec(|refthr| ffi::lua_topointer(refthr, table.0.index)) };
+        let ptr = table.to_pointer();
         visited.borrow_mut().insert(ptr);
         RecursionGuard { ptr, visited }
     }
@@ -585,9 +622,7 @@ fn check_value_if_skip(
 ) -> Result<bool> {
     match value {
         Value::Table(table) => {
-            let lua = table.0.lua;
-            let ptr =
-                unsafe { lua.ref_thread_exec(|refthr| ffi::lua_topointer(refthr, table.0.index)) };
+            let ptr = table.to_pointer();
             if visited.borrow().contains(&ptr) {
                 if options.deny_recursive_tables {
                     return Err(de::Error::custom("recursive table detected"));
@@ -595,6 +630,7 @@ fn check_value_if_skip(
                 return Ok(true); // skip
             }
         }
+        Value::UserData(ud) if ud.is_serializable() => {}
         Value::Function(_)
         | Value::Thread(_)
         | Value::UserData(_)
@@ -607,4 +643,12 @@ fn check_value_if_skip(
         _ => {}
     }
     Ok(false) // do not skip
+}
+
+fn serde_userdata<V>(
+    ud: AnyUserData,
+    f: impl FnOnce(serde_value::Value) -> std::result::Result<V, serde_value::DeserializerError>,
+) -> Result<V> {
+    let value = serde_value::to_value(ud).map_err(|err| Error::SerializeError(err.to_string()))?;
+    f(value).map_err(|err| Error::DeserializeError(err.to_string()))
 }

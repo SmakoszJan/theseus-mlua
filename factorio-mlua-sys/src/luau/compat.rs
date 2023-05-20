@@ -341,7 +341,7 @@ pub unsafe fn luaL_loadbufferx(
         fn free(p: *mut c_void);
     }
 
-    let chunk_is_text = (*data as u8) >= b'\n';
+    let chunk_is_text = size == 0 || (*data as u8) >= b'\n';
     if !mode.is_null() {
         let modeb = CStr::from_ptr(mode).to_bytes();
         if !chunk_is_text && !modeb.contains(&b'b') {
@@ -423,7 +423,7 @@ pub unsafe fn luaL_traceback(
             level = numlevels - COMPAT53_LEVELS2; // and skip to last ones
         } else {
             lua_getinfo(L1, level, cstr!("sln"), &mut ar);
-            lua_pushfstring(L, cstr!("\n\t%s:"), ar.short_src.as_ptr());
+            lua_pushfstring(L, cstr!("\n\t%s:"), ar.short_src);
             if ar.currentline > 0 {
                 lua_pushfstring(L, cstr!("%d:"), ar.currentline);
             }

@@ -1,8 +1,8 @@
 [package]
-name = "rust_module"
+name = "test_module"
 version = "0.0.0"
 authors = ["Aleksandr Orlenko <zxteam@pm.me>"]
-edition = "2018"
+edition = "2021"
 
 [lib]
 crate-type = ["cdylib"]

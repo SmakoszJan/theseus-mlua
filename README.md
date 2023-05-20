@@ -9,9 +9,17 @@
 [docs.rs]: https://docs.rs/factorio-mlua
 [Coverage Status]: https://codecov.io/gh/khvzak/mlua/branch/master/graph/badge.svg?token=99339FS1CG
 [codecov.io]: https://codecov.io/gh/khvzak/mlua
-[MSRV]: https://img.shields.io/badge/rust-1.56+-brightgreen.svg?&logo=rust
+[MSRV]: https://img.shields.io/badge/rust-1.63+-brightgreen.svg?&logo=rust
 
-[Guided Tour](examples/guided_tour.rs)
+[Guided Tour] | [Benchmarks] | [FAQ]
+
+[Guided Tour]: examples/guided_tour.rs
+[Benchmarks]: https://github.com/khvzak/script-bench-rs
+[FAQ]: FAQ.md
+
+> **Note**
+>
+> Please see the [v0.8](https://github.com/khvzak/mlua/tree/v0.8) branch for the stable versions of `mlua` released to crates.io.
 
 `mlua` is bindings to [Lua](https://www.lua.org) programming language for Rust with a goal to provide
 _safe_ (as far as it's possible), high level, easy to use, practical and flexible API.
@@ -47,6 +55,7 @@ Below is a list of the available feature flags. By default `mlua` does not enabl
 * `serialize`: add serialization and deserialization support to `mlua` types using [serde] framework
 * `macros`: enable procedural macros (such as `chunk!`)
 * `parking_lot`: support UserData types wrapped in [parking_lot]'s primitives (`Arc<Mutex>` and `Arc<RwLock>`)
+* `unstable`: enable **unstable** features. The public API of these features may break between releases.
 
 [5.4]: https://www.lua.org/manual/5.4/manual.html
 [5.3]: https://www.lua.org/manual/5.3/manual.html

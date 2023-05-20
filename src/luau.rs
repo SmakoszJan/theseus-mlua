@@ -1,9 +1,9 @@
 use std::ffi::CStr;
 use std::os::raw::{c_float, c_int};
+use std::string::String as StdString;
 
 use crate::chunk::ChunkMode;
 use crate::error::{Error, Result};
-use crate::ffi;
 use crate::lua::Lua;
 use crate::table::Table;
 use crate::util::{check_stack, StackGuard};
@@ -21,6 +21,12 @@ impl Lua {
         )?;
         globals.raw_set("require", self.create_function(lua_require)?)?;
         globals.raw_set("vector", self.create_c_function(lua_vector)?)?;
+
+        // Set `_VERSION` global to include version number
+        // The environment variable `LUAU_VERSION` set by the build script
+        if let Some(version) = option_env!("LUAU_VERSION") {
+            globals.raw_set("_VERSION", format!("Luau {version}"))?;
+        }
 
         Ok(())
     }
@@ -63,14 +69,15 @@ unsafe extern "C" fn lua_collectgarbage(state: *mut ffi::lua_State) -> c_int {
     }
 }
 
-fn lua_require(lua: &Lua, name: Option<std::string::String>) -> Result<Value> {
+fn lua_require(lua: &Lua, name: Option<StdString>) -> Result<Value> {
     let name = name.ok_or_else(|| Error::RuntimeError("invalid module name".into()))?;
 
     // Find module in the cache
+    let state = lua.state();
     let loaded = unsafe {
-        let _sg = StackGuard::new(lua.state);
-        check_stack(lua.state, 2)?;
-        protect_lua!(lua.state, 0, 1, fn(state) {
+        let _sg = StackGuard::new(state);
+        check_stack(state, 2)?;
+        protect_lua!(state, 0, 1, fn(state) {
             ffi::luaL_getsubtable(state, ffi::LUA_REGISTRYINDEX, cstr!("_LOADED"));
         })?;
         Table(lua.pop_ref())
@@ -85,18 +92,20 @@ fn lua_require(lua: &Lua, name: Option<std::string::String>) -> Result<Value> {
         search_path = "?.luau;?.lua".into();
     }
 
-    let mut source = None;
+    let (mut source, mut source_name) = (None, String::new());
     for path in search_path.split(';') {
-        if let Ok(buf) = std::fs::read(path.replacen('?', &name, 1)) {
+        let file_path = path.replacen('?', &name, 1);
+        if let Ok(buf) = std::fs::read(&file_path) {
             source = Some(buf);
+            source_name = file_path;
             break;
         }
     }
-    let source = source.ok_or_else(|| Error::RuntimeError(format!("cannot find '{}'", name)))?;
+    let source = source.ok_or_else(|| Error::RuntimeError(format!("cannot find '{name}'")))?;
 
     let value = lua
         .load(&source)
-        .set_name(&format!("={}", name))?
+        .set_name(&format!("={source_name}"))
         .set_mode(ChunkMode::Text)
         .call::<_, Value>(())?;
 

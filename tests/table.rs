@@ -110,6 +110,96 @@ fn test_table() -> Result<()> {
 }
 
 #[test]
+fn test_table_push_pop() -> Result<()> {
+    let lua = Lua::new();
+
+    // Test raw access
+    let table1 = lua.create_sequence_from(vec![123])?;
+    table1.raw_push(321)?;
+    assert_eq!(
+        table1
+            .clone()
+            .raw_sequence_values::<i64>()
+            .collect::<Result<Vec<_>>>()?,
+        vec![123, 321]
+    );
+    assert_eq!(table1.raw_pop::<i64>()?, 321);
+    assert_eq!(table1.raw_pop::<i64>()?, 123);
+    assert_eq!(table1.raw_pop::<Value>()?, Value::Nil); // An extra pop should do nothing
+    assert_eq!(table1.raw_len(), 0);
+
+    // Test access through metamethods
+    let table2 = lua
+        .load(
+            r#"
+        local proxy_table = {234}
+        table2 = setmetatable({}, {
+            __len = function() return #proxy_table end,
+            __index = proxy_table,
+            __newindex = proxy_table,
+        })
+        return table2
+    "#,
+        )
+        .eval::<Table>()?;
+    table2.push(345)?;
+    assert_eq!(table2.len()?, 2);
+    assert_eq!(table2.pop::<i64>()?, 345);
+    assert_eq!(table2.pop::<i64>()?, 234);
+    assert_eq!(table2.pop::<Value>()?, Value::Nil);
+    assert_eq!(table2.len()?, 0);
+
+    Ok(())
+}
+
+#[test]
+fn test_table_clear() -> Result<()> {
+    let lua = Lua::new();
+
+    // Check readonly error
+    #[cfg(feature = "luau")]
+    {
+        let t = lua.create_table()?;
+        t.set_readonly(true);
+        assert!(matches!(
+            t.clear(),
+            Err(Error::RuntimeError(err)) if err.contains("attempt to modify a readonly table")
+        ));
+    }
+
+    let t = lua.create_table()?;
+    // Set array and hash parts
+    t.push("abc")?;
+    t.push("bcd")?;
+    t.set("a", "1")?;
+    t.set("b", "2")?;
+    t.clear()?;
+    assert_eq!(t.len()?, 0);
+    assert_eq!(t.pairs::<Value, Value>().count(), 0);
+
+    // Test table with metamethods
+    let t2 = lua
+        .load(
+            r#"
+        setmetatable({1, 2, 3, a = "1"}, {
+            __index = function() error("index error") end,
+            __newindex = function() error("newindex error") end,
+            __len = function() error("len error") end,
+            __pairs = function() error("pairs error") end,
+        })
+    "#,
+        )
+        .eval::<Table>()?;
+    assert_eq!(t2.raw_len(), 3);
+    t2.clear()?;
+    assert_eq!(t2.raw_len(), 0);
+    assert_eq!(t2.raw_get::<_, Value>("a")?, Value::Nil);
+    assert_ne!(t2.get_metatable(), None);
+
+    Ok(())
+}
+
+#[test]
 fn test_table_sequence_from() -> Result<()> {
     let lua = Lua::new();
 
@@ -299,6 +389,20 @@ fn test_table_call() -> Result<()> {
         table2.call::<_, ()>(()),
         Err(Error::RuntimeError(_))
     ));
+
+    Ok(())
+}
+
+#[cfg(all(feature = "unstable", not(feature = "send")))]
+#[test]
+fn test_owned_table() -> Result<()> {
+    let lua = Lua::new();
+
+    let table = lua.create_table()?.into_owned();
+    drop(lua);
+
+    table.to_ref().set("abc", 123)?;
+    assert_eq!(table.to_ref().get::<_, i64>("abc")?, 123);
 
     Ok(())
 }

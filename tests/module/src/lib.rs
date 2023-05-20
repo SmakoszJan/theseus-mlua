@@ -8,12 +8,12 @@ fn used_memory(lua: &Lua, _: ()) -> LuaResult<usize> {
     Ok(lua.used_memory())
 }
 
-fn check_userdata(_: &Lua, ud: MyUserData) -> LuaResult<i32> {
-    Ok(ud.0)
+fn check_userdata(_: &Lua, ud: LuaAnyUserData) -> LuaResult<i32> {
+    Ok(ud.borrow::<MyUserData>()?.0)
 }
 
 #[mlua::lua_module]
-fn rust_module(lua: &Lua) -> LuaResult<LuaTable> {
+fn test_module(lua: &Lua) -> LuaResult<LuaTable> {
     let exports = lua.create_table()?;
     exports.set("sum", lua.create_function(sum)?)?;
     exports.set("used_memory", lua.create_function(used_memory)?)?;
@@ -26,14 +26,14 @@ struct MyUserData(i32);
 
 impl LuaUserData for MyUserData {}
 
-#[mlua::lua_module]
-fn rust_module_second(lua: &Lua) -> LuaResult<LuaTable> {
+#[mlua::lua_module(name = "test_module_second")]
+fn test_module2(lua: &Lua) -> LuaResult<LuaTable> {
     let exports = lua.create_table()?;
-    exports.set("userdata", lua.create_userdata(MyUserData(123))?)?;
+    exports.set("userdata", MyUserData(123))?;
     Ok(exports)
 }
 
 #[mlua::lua_module]
-fn rust_module_error(_: &Lua) -> LuaResult<LuaTable> {
-    Err("custom module error".to_lua_err())
+fn test_module_error(_: &Lua) -> LuaResult<LuaTable> {
+    Err("custom module error".into_lua_err())
 }
