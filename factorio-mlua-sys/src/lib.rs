@@ -7,6 +7,9 @@
 
 use std::os::raw::c_int;
 
+#[cfg(feature = "lua-factorio")]
+extern crate link_cplusplus;
+
 #[cfg(any(feature = "lua54", doc))]
 pub use lua54::*;
 

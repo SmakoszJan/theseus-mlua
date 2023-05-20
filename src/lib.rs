@@ -150,9 +150,6 @@ pub mod serde;
 #[macro_use]
 extern crate mlua_derive;
 
-#[cfg(feature = "lua-factorio")]
-extern crate link_cplusplus;
-
 // Unstable features
 #[cfg(feature = "unstable")]
 pub use crate::{
