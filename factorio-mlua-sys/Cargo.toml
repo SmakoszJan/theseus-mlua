@@ -1,6 +1,6 @@
 [package]
 name = "factorio-mlua-sys"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Aleksandr Orlenko <zxteam@pm.me>", "JohnTheCoolingFan <ivan8215145640@gmail.com>"]
 edition = "2021"
 repository = "https://github.com/JohnTheCoolingFan/factorio-mlua"
