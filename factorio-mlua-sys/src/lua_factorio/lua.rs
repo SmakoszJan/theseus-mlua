@@ -293,7 +293,6 @@ extern "C" {
     ) -> c_int;
     #[link_name = "lua_resume"]
     pub fn lua_resume_(L: *mut lua_State, from: *mut lua_State, narg: c_int) -> c_int;
-    pub fn lua_status(L: *mut lua_State) -> c_int;
 }
 
 #[inline(always)]
@@ -301,6 +300,10 @@ pub unsafe fn lua_yield(L: *mut lua_State, n: c_int) -> c_int {
     lua_yieldk(L, n, 0, None)
 }
 */
+
+extern "C" {
+    pub fn lua_status(L: *mut lua_State) -> c_int;
+}
 
 //
 // Garbage-collection function and options
