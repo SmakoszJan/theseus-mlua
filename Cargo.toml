@@ -56,7 +56,7 @@ erased-serde = { version = "0.3", optional = true }
 serde-value = { version = "0.7", optional = true }
 parking_lot = { version = "0.12", optional = true }
 link-cplusplus = { version = "1.0", optional = true}
-ffi = { package = "factorio-mlua-sys", version = "0.1.0", path = "factorio-mlua-sys" }
+ffi = { package = "factorio-mlua-sys", version = "0.1.2", path = "factorio-mlua-sys" }
 
 [dev-dependencies]
 rustyline = "11.0"
