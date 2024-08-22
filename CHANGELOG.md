@@ -1,3 +1,9 @@
+## v0.9.0-beta-4
+
+New features:
+- Exposed `Thread::status()`
+- There is no v0.9.0-beta-3 in this fork to avoid possible conflicts
+
 ## v0.9.0-beta.2
 
 New features:
