@@ -286,6 +286,12 @@ Breaking changes:
 - Require environment to be a `Table` instead of `Value` in Chunks.
 - `AsChunk::env()` renamed to `AsChunk::environment()`
 
+## v0.9.0-beta-4
+
+New features:
+- Exposed `Thread::status()`
+- There is no v0.9.0-beta-3 in this fork to avoid possible conflicts
+
 ## v0.9.0-beta.2
 
 New features:

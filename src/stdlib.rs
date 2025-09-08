@@ -17,11 +17,14 @@ impl StdLib {
     pub const TABLE: StdLib = StdLib(1 << 1);
 
     /// [`io`](https://www.lua.org/manual/5.4/manual.html#6.8) library
-    #[cfg(not(feature = "luau"))]
-    #[cfg_attr(docsrs, doc(cfg(not(feature = "luau"))))]
+    #[cfg(not(any(feature = "luau", feature = "lua-factorio")))]
+    #[cfg_attr(docsrs, doc(cfg(not(any(feature = "luau", feature = "lua-factorio")))))]
     pub const IO: StdLib = StdLib(1 << 2);
 
     /// [`os`](https://www.lua.org/manual/5.4/manual.html#6.9) library
+    ///
+    /// Not compatible with `feature = "lua-factorio"`
+    #[cfg(not(feature = "lua-factorio"))]
     pub const OS: StdLib = StdLib(1 << 3);
 
     /// [`string`](https://www.lua.org/manual/5.4/manual.html#6.4) library
@@ -33,10 +36,21 @@ impl StdLib {
     pub const UTF8: StdLib = StdLib(1 << 5);
 
     /// [`bit`](https://www.lua.org/manual/5.2/manual.html#6.7) library
-    #[cfg(any(feature = "lua52", feature = "luajit", feature = "luau", doc))]
+    #[cfg(any(
+        feature = "lua52",
+        feature = "luajit",
+        feature = "luau",
+        feature = "lua-factorio",
+        doc
+    ))]
     #[cfg_attr(
         docsrs,
-        doc(cfg(any(feature = "lua52", feature = "luajit", feature = "luau")))
+        doc(cfg(any(
+            feature = "lua52",
+            feature = "luajit",
+            feature = "luau",
+            feature = "lua-factorio"
+        )))
     )]
     pub const BIT: StdLib = StdLib(1 << 6);
 

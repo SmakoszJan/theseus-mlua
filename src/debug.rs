@@ -191,9 +191,19 @@ impl<'a> Debug<'a> {
             #[cfg(not(feature = "luau"))]
             let stack = DebugStack {
                 num_ups: (*self.ar).nups as _,
-                #[cfg(any(feature = "lua54", feature = "lua53", feature = "lua52"))]
+                #[cfg(any(
+                    feature = "lua54",
+                    feature = "lua53",
+                    feature = "lua52",
+                    feature = "lua-factorio"
+                ))]
                 num_params: (*self.ar).nparams as _,
-                #[cfg(any(feature = "lua54", feature = "lua53", feature = "lua52"))]
+                #[cfg(any(
+                    feature = "lua54",
+                    feature = "lua53",
+                    feature = "lua52",
+                    feature = "lua-factorio"
+                ))]
                 is_vararg: (*self.ar).isvararg != 0,
             };
             #[cfg(feature = "luau")]
@@ -248,17 +258,41 @@ pub struct DebugStack {
     /// Number of upvalues.
     pub num_ups: u8,
     /// Number of parameters.
-    #[cfg(any(feature = "lua54", feature = "lua53", feature = "lua52", feature = "luau"))]
+    #[cfg(any(
+        feature = "lua54",
+        feature = "lua53",
+        feature = "lua52",
+        feature = "luau",
+        feature = "lua-factorio"
+    ))]
     #[cfg_attr(
         docsrs,
-        doc(cfg(any(feature = "lua54", feature = "lua53", feature = "lua52", feature = "luau")))
+        doc(cfg(any(
+            feature = "lua54",
+            feature = "lua53",
+            feature = "lua52",
+            feature = "luau",
+            feature = "lua-factorio"
+        )))
     )]
     pub num_params: u8,
     /// Whether the function is a vararg function.
-    #[cfg(any(feature = "lua54", feature = "lua53", feature = "lua52", feature = "luau"))]
+    #[cfg(any(
+        feature = "lua54",
+        feature = "lua53",
+        feature = "lua52",
+        feature = "luau",
+        feature = "lua-factorio"
+    ))]
     #[cfg_attr(
         docsrs,
-        doc(cfg(any(feature = "lua54", feature = "lua53", feature = "lua52", feature = "luau")))
+        doc(cfg(any(
+            feature = "lua54",
+            feature = "lua53",
+            feature = "lua52",
+            feature = "luau",
+            feature = "lua-factorio"
+        )))
     )]
     pub is_vararg: bool,
 }

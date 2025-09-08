@@ -727,6 +727,23 @@ impl Table {
         Ok(())
     }
 
+    /// C++ side implementation of table size calculating function.
+    /// For more info on function see <https://lua-api.factorio.com/latest/Libraries.html>,
+    /// `table_size()` section.
+    /// Factorio uses this with `fuzzy` set to false
+    #[cfg(any(feature = "lua-factorio", doc))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "lua-factorio")))]
+    pub fn table_size(&self, fuzzy: bool) -> Integer {
+        let lua = self.0.lua;
+        unsafe {
+            let _sg = StackGuard::new(lua.state());
+            assert_stack(lua.state(), 1);
+
+            lua.push_ref(&self.0);
+            ffi::lua_tablesize(lua.state(), -1, fuzzy as i32) as Integer
+        }
+    }
+
     #[cfg(feature = "serde")]
     pub(crate) fn is_array(&self) -> bool {
         let lua = self.0.lua.lock();

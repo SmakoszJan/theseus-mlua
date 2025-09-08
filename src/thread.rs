@@ -142,6 +142,7 @@ impl Thread {
     ///
     /// [`coroutine.resume`]: https://www.lua.org/manual/5.4/manual.html#pdf-coroutine.resume
     /// [`coroutine.yield`]: https://www.lua.org/manual/5.4/manual.html#pdf-coroutine.yield
+    #[cfg(any(not(feature = "lua-factorio"), doc))]
     pub fn resume<R>(&self, args: impl IntoLuaMulti) -> Result<R>
     where
         R: FromLuaMulti,

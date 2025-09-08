@@ -1,15 +1,15 @@
 # mlua
 [![Build Status]][github-actions] [![Latest Version]][crates.io] [![API Documentation]][docs.rs] [![Coverage Status]][codecov.io] ![MSRV]
 
-[Build Status]: https://github.com/mlua-rs/mlua/workflows/CI/badge.svg
-[github-actions]: https://github.com/mlua-rs/mlua/actions
-[Latest Version]: https://img.shields.io/crates/v/mlua.svg
-[crates.io]: https://crates.io/crates/mlua
-[API Documentation]: https://docs.rs/mlua/badge.svg
-[docs.rs]: https://docs.rs/mlua
-[Coverage Status]: https://codecov.io/gh/mlua-rs/mlua/branch/main/graph/badge.svg?token=99339FS1CG
-[codecov.io]: https://codecov.io/gh/mlua-rs/mlua
-[MSRV]: https://img.shields.io/badge/rust-1.79+-brightgreen.svg?&logo=rust
+[Build Status]: https://github.com/SmakoszJan/theseus-mlua/workflows/CI/badge.svg
+[github-actions]: https://github.com/SmakoszJan/theseus-mlua/actions
+[Latest Version]: https://img.shields.io/crates/v/theseus-mlua.svg
+[crates.io]: https://crates.io/crates/theseus-mlua
+[API Documentation]: https://docs.rs/theseus-mlua/badge.svg
+[docs.rs]: https://docs.rs/theseus-mlua
+[Coverage Status]: https://codecov.io/gh/khvzak/mlua/branch/master/graph/badge.svg?token=99339FS1CG
+[codecov.io]: https://codecov.io/gh/khvzak/mlua
+[MSRV]: https://img.shields.io/badge/rust-1.63+-brightgreen.svg?&logo=rust
 
 [Guided Tour] | [Benchmarks] | [FAQ]
 
@@ -24,10 +24,12 @@ Started as an `rlua` fork, `mlua` supports Lua 5.4, 5.3, 5.2, 5.1 (including Lua
 
 `mlua` is tested on Windows/macOS/Linux including module mode in [GitHub Actions] on `x86_64` platforms and cross-compilation to `aarch64` (other targets are also supported).
 
+This is a fork with added Factorio Lua support.
+
 WebAssembly (WASM) is supported through the `wasm32-unknown-emscripten` target for all Lua/Luau versions excluding JIT.
 
-[GitHub Actions]: https://github.com/mlua-rs/mlua/actions
-[Luau]: https://luau.org
+[GitHub Actions]: https://github.com/SmakoszJan/factorio-mlua/actions
+[Roblox Luau]: https://luau-lang.org
 
 ## Usage
 
@@ -46,6 +48,7 @@ Below is a list of the available feature flags. By default `mlua` does not enabl
 * `luau-jit`: enable [Luau] support with JIT backend.
 * `luau-vector4`: enable [Luau] support with 4-dimensional vector.
 * `vendored`: build static Lua(JIT) libraries from sources during `mlua` compilation using [lua-src] or [luajit-src]
+* `lua-factorio`: activate [Factorio Lua] support (auto vendored mode)
 * `module`: enable module mode (building loadable `cdylib` library for Lua)
 * `async`: enable async/await support (any executor can be used, eg. [tokio] or [async-std])
 * `send`: make `mlua::Lua: Send + Sync` (adds [`Send`] requirement to `mlua::Function` and `mlua::UserData`)
@@ -61,6 +64,7 @@ Below is a list of the available feature flags. By default `mlua` does not enabl
 [5.1]: https://www.lua.org/manual/5.1/manual.html
 [LuaJIT]: https://luajit.org/
 [Luau]: https://github.com/luau-lang/luau
+[Factorio Lua]: https://github.com/Rseding91/Factorio-Lua
 [lua-src]: https://github.com/mlua-rs/lua-src-rs
 [luajit-src]: https://github.com/mlua-rs/luajit-src-rs
 [tokio]: https://github.com/tokio-rs/tokio

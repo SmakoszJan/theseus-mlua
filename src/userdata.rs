@@ -106,10 +106,10 @@ pub enum MetaMethod {
     /// The `__pairs` metamethod.
     ///
     /// This is not an operator, but it will be called by the built-in `pairs` function.
-    #[cfg(any(feature = "lua54", feature = "lua53", feature = "lua52", feature = "luajit52"))]
+    #[cfg(any(feature = "lua54", feature = "lua53", feature = "lua52", feature = "luajit52", feature = "lua-factorio"))]
     #[cfg_attr(
         docsrs,
-        doc(cfg(any(feature = "lua54", feature = "lua53", feature = "lua52", feature = "luajit52")))
+        doc(cfg(any(feature = "lua54", feature = "lua53", feature = "lua52", feature = "luajit52", feature = "lua-factorio")))
     )]
     Pairs,
     /// The `__ipairs` metamethod.
@@ -117,8 +117,11 @@ pub enum MetaMethod {
     /// This is not an operator, but it will be called by the built-in [`ipairs`] function.
     ///
     /// [`ipairs`]: https://www.lua.org/manual/5.2/manual.html#pdf-ipairs
-    #[cfg(any(feature = "lua52", feature = "luajit52", doc))]
-    #[cfg_attr(docsrs, doc(cfg(any(feature = "lua52", feature = "luajit52"))))]
+    #[cfg(any(feature = "lua52", feature = "luajit52", feature = "lua-factorio", doc))]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(any(feature = "lua52", feature = "luajit52", feature = "lua-factorio")))
+    )]
     IPairs,
     /// The `__iter` metamethod.
     ///
@@ -201,9 +204,15 @@ impl MetaMethod {
             MetaMethod::Call => "__call",
             MetaMethod::ToString => "__tostring",
 
-            #[cfg(any(feature = "lua54", feature = "lua53", feature = "lua52", feature = "luajit52"))]
+            #[cfg(any(
+                feature = "lua54",
+                feature = "lua53",
+                feature = "lua52",
+                feature = "luajit52",
+                feature = "lua-factorio"
+            ))]
             MetaMethod::Pairs => "__pairs",
-            #[cfg(any(feature = "lua52", feature = "luajit52"))]
+            #[cfg(any(feature = "lua52", feature = "luajit52", feature = "lua-factorio"))]
             MetaMethod::IPairs => "__ipairs",
             #[cfg(feature = "luau")]
             MetaMethod::Iter => "__iter",

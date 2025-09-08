@@ -3,5 +3,6 @@ target/
 Cargo.lock
 
 .vscode/
+.vim/
 .DS_Store
 .stignore
