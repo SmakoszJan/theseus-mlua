@@ -734,7 +734,7 @@ impl Table {
     #[cfg(any(feature = "lua-factorio", doc))]
     #[cfg_attr(docsrs, doc(cfg(feature = "lua-factorio")))]
     pub fn table_size(&self, fuzzy: bool) -> Integer {
-        let lua = self.0.lua;
+        let lua = self.0.lua.lock();
         unsafe {
             let _sg = StackGuard::new(lua.state());
             assert_stack(lua.state(), 1);

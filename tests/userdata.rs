@@ -6,7 +6,7 @@ use std::sync::Arc;
 #[cfg(feature = "lua54")]
 use std::sync::atomic::{AtomicI64, Ordering};
 
-use mlua::{
+use theseus_mlua::{
     AnyUserData, Error, ExternalError, Function, Lua, MetaMethod, Nil, ObjectLike, Result, String, UserData,
     UserDataFields, UserDataMethods, UserDataRef, UserDataRegistry, Value, Variadic,
 };

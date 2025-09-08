@@ -1,5 +1,5 @@
-use mlua::{Error, Lua, LuaSerdeExt, Result, UserData, Value};
 use serde::{Deserialize, Serialize};
+use theseus_mlua::{Error, Lua, LuaSerdeExt, Result, UserData, Value};
 
 #[derive(Serialize, Deserialize)]
 enum Transmission {

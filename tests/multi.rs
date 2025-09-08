@@ -1,4 +1,6 @@
-use mlua::{Error, ExternalError, Integer, IntoLuaMulti, Lua, MultiValue, Result, String, Value, Variadic};
+use theseus_mlua::{
+    Error, ExternalError, Integer, IntoLuaMulti, Lua, MultiValue, Result, String, Value, Variadic,
+};
 
 #[test]
 fn test_result_conversions() -> Result<()> {

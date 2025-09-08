@@ -3,7 +3,7 @@ use std::os::raw::c_void;
 use std::ptr;
 use std::string::String as StdString;
 
-use mlua::{Error, LightUserData, Lua, MultiValue, Result, UserData, UserDataMethods, Value};
+use theseus_mlua::{Error, LightUserData, Lua, MultiValue, Result, UserData, UserDataMethods, Value};
 
 #[test]
 fn test_value_eq() -> Result<()> {

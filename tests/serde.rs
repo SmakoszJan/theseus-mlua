@@ -4,11 +4,11 @@ use std::collections::HashMap;
 use std::error::Error as StdError;
 
 use bstr::BString;
-use mlua::{
-    AnyUserData, DeserializeOptions, Error, ExternalResult, IntoLua, Lua, LuaSerdeExt, Result as LuaResult,
-    SerializeOptions, UserData, Value,
-};
 use serde::{Deserialize, Serialize};
+use theseus_mlua::{
+    serde::de::ErrorTraced, AnyUserData, DeserializeOptions, Error, ExternalResult, IntoLua, Lua,
+    LuaSerdeExt, Result as LuaResult, SerializeOptions, UserData, Value,
+};
 
 #[test]
 fn test_serialize() -> Result<(), Box<dyn StdError>> {
@@ -564,7 +564,10 @@ fn test_from_value_enum_untagged() -> Result<(), Box<dyn StdError>> {
     let value = lua.load(r#"{b = 12}"#).eval()?;
     match lua.from_value::<Eut>(value) {
         Ok(v) => panic!("expected Error::DeserializeError, got {:?}", v),
-        Err(Error::DeserializeError(_)) => {}
+        Err(ErrorTraced {
+            error: Error::DeserializeError(_),
+            ..
+        }) => {}
         Err(e) => panic!("expected Error::DeserializeError, got {}", e),
     }
 
@@ -579,7 +582,10 @@ fn test_from_value_with_options() -> Result<(), Box<dyn StdError>> {
     let value = Value::Function(lua.create_function(|_, ()| Ok(()))?);
     match lua.from_value::<Option<String>>(value) {
         Ok(v) => panic!("expected deserialization error, got {:?}", v),
-        Err(Error::DeserializeError(err)) => {
+        Err(ErrorTraced {
+            error: Error::DeserializeError(err),
+            ..
+        }) => {
             assert!(err.contains("unsupported value type"))
         }
         Err(err) => panic!("expected `DeserializeError` error, got {:?}", err),
@@ -602,7 +608,10 @@ fn test_from_value_with_options() -> Result<(), Box<dyn StdError>> {
     let value = lua.load(r#"local t = {}; t.t = t; return t"#).eval()?;
     match lua.from_value::<HashMap<String, Option<String>>>(value) {
         Ok(v) => panic!("expected deserialization error, got {:?}", v),
-        Err(Error::DeserializeError(err)) => {
+        Err(ErrorTraced {
+            error: Error::DeserializeError(err),
+            ..
+        }) => {
             assert!(err.contains("recursive table detected"))
         }
         Err(err) => panic!("expected `DeserializeError` error, got {:?}", err),

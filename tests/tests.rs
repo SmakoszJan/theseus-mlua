@@ -6,7 +6,7 @@ use std::string::String as StdString;
 use std::sync::Arc;
 use std::{error, f32, f64, fmt};
 
-use mlua::{
+use theseus_mlua::{
     ffi, ChunkMode, Error, ExternalError, Function, Lua, LuaOptions, Nil, Result, StdLib, String, Table,
     UserData, Value, Variadic,
 };
@@ -984,7 +984,7 @@ fn test_rust_function() -> Result<()> {
 fn test_c_function() -> Result<()> {
     let lua = Lua::new();
 
-    extern "C-unwind" fn c_function(state: *mut mlua::lua_State) -> std::os::raw::c_int {
+    extern "C-unwind" fn c_function(state: *mut theseus_mlua::lua_State) -> std::os::raw::c_int {
         unsafe {
             ffi::lua_pushboolean(state, 1);
             ffi::lua_setglobal(state, b"c_function\0" as *const _ as *const _);
@@ -1156,6 +1156,7 @@ fn test_chunk_env() -> Result<()> {
 fn test_context_thread() -> Result<()> {
     let lua = Lua::new();
 
+    #[allow(unused)]
     let f = lua
         .load(
             r#"

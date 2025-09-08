@@ -1,4 +1,4 @@
-use mlua::{Lua, Result};
+use theseus_mlua::{Lua, Result};
 
 #[test]
 fn test_debug_format() -> Result<()> {

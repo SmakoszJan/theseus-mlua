@@ -2,6 +2,7 @@ target/
 **/*.rs.bk
 Cargo.lock
 
+.helix/
 .vscode/
 .vim/
 .DS_Store

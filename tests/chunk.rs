@@ -1,6 +1,6 @@
 use std::{fs, io};
 
-use mlua::{Chunk, ChunkMode, Lua, Result};
+use theseus_mlua::{Chunk, ChunkMode, Lua, Result};
 
 #[test]
 fn test_chunk_methods() -> Result<()> {

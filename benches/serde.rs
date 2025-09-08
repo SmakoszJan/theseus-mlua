@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
-use mlua::prelude::*;
+use theseus_mlua::prelude::*;
 
 fn collect_gc_twice(lua: &Lua) {
     lua.gc_collect().unwrap();

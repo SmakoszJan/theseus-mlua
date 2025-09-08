@@ -153,7 +153,12 @@ impl RawLua {
                 (|| -> Result<()> {
                     let _sg = StackGuard::new(state);
 
-                    #[cfg(any(feature = "lua54", feature = "lua53", feature = "lua52"))]
+                    #[cfg(any(
+                        feature = "lua54",
+                        feature = "lua53",
+                        feature = "lua52",
+                        feature = "lua-factorio"
+                    ))]
                     ffi::lua_rawgeti(state, ffi::LUA_REGISTRYINDEX, ffi::LUA_RIDX_GLOBALS);
                     #[cfg(any(feature = "lua51", feature = "luajit", feature = "luau"))]
                     ffi::lua_pushvalue(state, ffi::LUA_GLOBALSINDEX);
@@ -420,7 +425,12 @@ impl RawLua {
                         if ffi::lua_isyieldable(state) != 0 {
                             ffi::lua_yield(state, 0);
                         }
-                        #[cfg(any(feature = "lua52", feature = "lua51", feature = "luajit"))]
+                        #[cfg(any(
+                            feature = "lua52",
+                            feature = "lua51",
+                            feature = "luajit",
+                            feature = "lua-factorio"
+                        ))]
                         {
                             ffi::lua_pushliteral(state, c"attempt to yield from a hook");
                             ffi::lua_error(state);
@@ -737,7 +747,13 @@ impl RawLua {
                 }
             }
 
-            #[cfg(any(feature = "lua52", feature = "lua51", feature = "luajit", feature = "luau"))]
+            #[cfg(any(
+                feature = "lua52",
+                feature = "lua51",
+                feature = "luajit",
+                feature = "luau",
+                feature = "lua-factorio"
+            ))]
             ffi::LUA_TNUMBER => {
                 use crate::types::Number;
 
@@ -859,7 +875,12 @@ impl RawLua {
         #[cfg(any(feature = "lua51", feature = "luajit", feature = "luau"))]
         ffi::lua_xpush(self.ref_thread(), state, ExtraData::ERROR_TRACEBACK_IDX);
         // Lua 5.2+ support light C functions that does not require extra allocations
-        #[cfg(any(feature = "lua54", feature = "lua53", feature = "lua52"))]
+        #[cfg(any(
+            feature = "lua54",
+            feature = "lua53",
+            feature = "lua52",
+            feature = "lua-factorio"
+        ))]
         ffi::lua_pushcfunction(state, crate::util::error_traceback);
     }
 
@@ -1239,7 +1260,13 @@ impl RawLua {
     #[cfg(feature = "async")]
     pub(crate) fn create_async_callback(&self, func: AsyncCallback) -> Result<Function> {
         // Ensure that the coroutine library is loaded
-        #[cfg(any(feature = "lua54", feature = "lua53", feature = "lua52", feature = "luau"))]
+        #[cfg(any(
+            feature = "lua54",
+            feature = "lua53",
+            feature = "lua52",
+            feature = "luau",
+            feature = "lua-factorio"
+        ))]
         unsafe {
             if !(*self.extra.get()).libs.contains(StdLib::COROUTINE) {
                 load_std_libs(self.main_state(), StdLib::COROUTINE)?;
@@ -1456,7 +1483,7 @@ unsafe fn load_std_libs(state: *mut ffi::lua_State, libs: StdLib) -> Result<()> 
     #[cfg(feature = "luajit")]
     let _gc_guard = GcGuard::new(state);
 
-    #[cfg(any(feature = "lua54", feature = "lua53", feature = "lua52", feature = "luau"))]
+    #[cfg(not(feature = "lua-factorio"))]
     {
         if libs.contains(StdLib::COROUTINE) {
             requiref(state, ffi::LUA_COLIBNAME, ffi::luaopen_coroutine, 1)?;
@@ -1467,11 +1494,13 @@ unsafe fn load_std_libs(state: *mut ffi::lua_State, libs: StdLib) -> Result<()> 
         requiref(state, ffi::LUA_TABLIBNAME, ffi::luaopen_table, 1)?;
     }
 
+    #[cfg(not(feature = "lua-factorio"))]
     #[cfg(not(feature = "luau"))]
     if libs.contains(StdLib::IO) {
         requiref(state, ffi::LUA_IOLIBNAME, ffi::luaopen_io, 1)?;
     }
 
+    #[cfg(not(feature = "lua-factorio"))]
     if libs.contains(StdLib::OS) {
         requiref(state, ffi::LUA_OSLIBNAME, ffi::luaopen_os, 1)?;
     }
@@ -1487,7 +1516,7 @@ unsafe fn load_std_libs(state: *mut ffi::lua_State, libs: StdLib) -> Result<()> 
         }
     }
 
-    #[cfg(any(feature = "lua52", feature = "luau"))]
+    #[cfg(any(feature = "lua52", feature = "luau", feature = "lua-factorio"))]
     {
         if libs.contains(StdLib::BIT) {
             requiref(state, ffi::LUA_BITLIBNAME, ffi::luaopen_bit32, 1)?;

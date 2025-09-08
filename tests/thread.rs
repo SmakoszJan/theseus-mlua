@@ -1,8 +1,11 @@
+#[allow(unused)]
 use std::panic::catch_unwind;
 
-use mlua::{Error, Function, IntoLua, Lua, Result, Thread, ThreadStatus, Value};
+#[allow(unused)]
+use theseus_mlua::{Error, Function, IntoLua, Lua, Result, Thread, ThreadStatus, Value};
 
 #[test]
+#[cfg(not(feature = "lua-factorio"))]
 fn test_thread() -> Result<()> {
     let lua = Lua::new();
 
@@ -107,9 +110,10 @@ fn test_thread() -> Result<()> {
 }
 
 #[test]
+#[cfg(not(feature = "lua-factorio"))]
 fn test_thread_reset() -> Result<()> {
-    use mlua::{AnyUserData, UserData};
     use std::sync::Arc;
+    use theseus_mlua::{AnyUserData, UserData};
 
     let lua = Lua::new();
 
@@ -174,6 +178,7 @@ fn test_thread_reset() -> Result<()> {
 }
 
 #[test]
+#[cfg(not(feature = "lua-factorio"))]
 fn test_coroutine_from_closure() -> Result<()> {
     let lua = Lua::new();
 
@@ -199,6 +204,7 @@ fn test_coroutine_from_closure() -> Result<()> {
 }
 
 #[test]
+#[cfg(not(feature = "lua-factorio"))]
 fn test_coroutine_panic() {
     match catch_unwind(|| -> Result<()> {
         // check that coroutines propagate panics correctly
@@ -254,6 +260,7 @@ fn test_thread_resume_error() -> Result<()> {
 }
 
 #[test]
+#[cfg(not(feature = "lua-factorio"))]
 fn test_thread_resume_bad_arg() -> Result<()> {
     let lua = Lua::new();
 

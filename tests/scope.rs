@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::string::String as StdString;
 use std::sync::Arc;
 
-use mlua::{
+use theseus_mlua::{
     AnyUserData, Error, Function, Lua, MetaMethod, ObjectLike, Result, String, UserData, UserDataFields,
     UserDataMethods, UserDataRegistry,
 };

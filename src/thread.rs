@@ -4,8 +4,10 @@ use std::os::raw::{c_int, c_void};
 use crate::error::{Error, Result};
 use crate::function::Function;
 use crate::state::RawLua;
+#[cfg(not(feature = "lua-factorio"))]
 use crate::traits::{FromLuaMulti, IntoLuaMulti};
 use crate::types::{LuaType, ValueRef};
+#[cfg(not(feature = "lua-factorio"))]
 use crate::util::{check_stack, error_traceback_thread, pop_error, StackGuard};
 
 #[cfg(not(feature = "luau"))]
@@ -46,6 +48,7 @@ pub enum ThreadStatus {
 /// The number in `New` and `Yielded` variants is the number of arguments pushed
 /// to the thread stack.
 #[derive(Clone, Copy)]
+#[allow(unused)]
 enum ThreadStatusInner {
     New(c_int),
     Running,
@@ -210,6 +213,7 @@ impl Thread {
     /// Resumes execution of this thread.
     ///
     /// It's similar to `resume()` but leaves `nresults` values on the thread stack.
+    #[cfg(not(feature = "lua-factorio"))]
     unsafe fn resume_inner(&self, lua: &RawLua, nargs: c_int) -> Result<(ThreadStatusInner, c_int)> {
         let state = lua.state();
         let thread_state = self.state();

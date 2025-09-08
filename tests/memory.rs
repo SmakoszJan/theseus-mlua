@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use mlua::{Error, GCMode, Lua, Result, UserData};
+use theseus_mlua::{Error, GCMode, Lua, Result, UserData};
 
 #[test]
 fn test_memory_limit() -> Result<()> {
@@ -45,6 +45,7 @@ fn test_memory_limit() -> Result<()> {
 }
 
 #[test]
+#[cfg(not(feature = "lua-factorio"))]
 fn test_memory_limit_thread() -> Result<()> {
     let lua = Lua::new();
 

@@ -7,6 +7,7 @@ use serde::ser::Serialize;
 
 use crate::error::Result;
 use crate::private::Sealed;
+use crate::serde::de::ErrorTraced;
 use crate::state::Lua;
 use crate::table::Table;
 use crate::util::check_stack;
@@ -144,7 +145,7 @@ pub trait LuaSerdeExt: Sealed {
     /// }
     /// ```
     #[allow(clippy::wrong_self_convention)]
-    fn from_value<T: DeserializeOwned>(&self, value: Value) -> Result<T>;
+    fn from_value<T: DeserializeOwned>(&self, value: Value) -> std::result::Result<T, ErrorTraced>;
 
     /// Deserializes a [`Value`] into any serde deserializable object with options.
     ///
@@ -172,7 +173,11 @@ pub trait LuaSerdeExt: Sealed {
     /// }
     /// ```
     #[allow(clippy::wrong_self_convention)]
-    fn from_value_with<T: DeserializeOwned>(&self, value: Value, options: de::Options) -> Result<T>;
+    fn from_value_with<T: DeserializeOwned>(
+        &self,
+        value: Value,
+        options: de::Options,
+    ) -> std::result::Result<T, ErrorTraced>;
 }
 
 impl LuaSerdeExt for Lua {
@@ -202,14 +207,14 @@ impl LuaSerdeExt for Lua {
         t.serialize(ser::Serializer::new_with_options(self, options))
     }
 
-    fn from_value<T>(&self, value: Value) -> Result<T>
+    fn from_value<T>(&self, value: Value) -> std::result::Result<T, ErrorTraced>
     where
         T: DeserializeOwned,
     {
         T::deserialize(de::Deserializer::new(value))
     }
 
-    fn from_value_with<T>(&self, value: Value, options: de::Options) -> Result<T>
+    fn from_value_with<T>(&self, value: Value, options: de::Options) -> std::result::Result<T, ErrorTraced>
     where
         T: DeserializeOwned,
     {

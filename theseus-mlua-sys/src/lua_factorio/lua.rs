@@ -1,5 +1,6 @@
 //! Contains definitions from `lua.h`.
 
+use std::ffi::CStr;
 use std::marker::{PhantomData, PhantomPinned};
 use std::os::raw::{c_char, c_double, c_int, c_uchar, c_uint, c_void};
 use std::ptr;
@@ -78,21 +79,17 @@ pub type lua_Integer = i64;
 pub type lua_Unsigned = c_uint;
 
 /// Type for native C functions that can be passed to Lua
-pub type lua_CFunction = unsafe extern "C" fn(L: *mut lua_State) -> c_int;
+pub type lua_CFunction = unsafe extern "C-unwind" fn(L: *mut lua_State) -> c_int;
 
 // Type for functions that read/write blocks when loading/dumping Lua chunks
 pub type lua_Reader =
     unsafe extern "C" fn(L: *mut lua_State, ud: *mut c_void, sz: *mut usize) -> *const c_char;
 pub type lua_Writer =
-    unsafe extern "C" fn(L: *mut lua_State, p: *const c_void, sz: usize, ud: *mut c_void) -> c_int;
+    unsafe extern "C-unwind" fn(L: *mut lua_State, p: *const c_void, sz: usize, ud: *mut c_void) -> c_int;
 
 /// Type for memory-allocation functions
-pub type lua_Alloc = unsafe extern "C" fn(
-    ud: *mut c_void,
-    ptr: *mut c_void,
-    osize: usize,
-    nsize: usize,
-) -> *mut c_void;
+pub type lua_Alloc =
+    unsafe extern "C" fn(ud: *mut c_void, ptr: *mut c_void, osize: usize, nsize: usize) -> *mut c_void;
 
 extern "C" {
     pub fn lua_registertracehandler(handler: Option<extern "C" fn(*const c_char)>);
@@ -241,13 +238,7 @@ extern "C" {
     //
     // 'load' and 'call' functions (load and run Lua code)
     //
-    pub fn lua_callk(
-        L: *mut lua_State,
-        nargs: c_int,
-        nresults: c_int,
-        ctx: c_int,
-        k: Option<lua_CFunction>,
-    );
+    pub fn lua_callk(L: *mut lua_State, nargs: c_int, nresults: c_int, ctx: c_int, k: Option<lua_CFunction>);
     pub fn lua_pcallk(
         L: *mut lua_State,
         nargs: c_int,
@@ -325,7 +316,7 @@ extern "C" {
     pub fn lua_gc(L: *mut lua_State, what: c_int, data: c_int) -> c_int;
 }
 
-extern "C" {
+extern "C-unwind" {
     //
     // Miscellaneous functions
     //
@@ -421,10 +412,8 @@ pub unsafe fn lua_isnoneornil(L: *mut lua_State, n: c_int) -> c_int {
 }
 
 #[inline(always)]
-pub unsafe fn lua_pushliteral(L: *mut lua_State, s: &'static str) -> *const c_char {
-    use std::ffi::CString;
-    let c_str = CString::new(s).unwrap();
-    lua_pushlstring_(L, c_str.as_ptr(), c_str.as_bytes().len())
+pub unsafe fn lua_pushliteral(L: *mut lua_State, s: &'static CStr) {
+    lua_pushstring(L, s.as_ptr());
 }
 
 #[inline(always)]
@@ -464,9 +453,9 @@ pub const LUA_MASKLINE: c_int = 1 << (LUA_HOOKLINE as usize);
 pub const LUA_MASKCOUNT: c_int = 1 << (LUA_HOOKCOUNT as usize);
 
 /// Type for functions to be called on debug events.
-pub type lua_Hook = unsafe extern "C" fn(L: *mut lua_State, ar: *mut lua_Debug);
+pub type lua_Hook = unsafe extern "C-unwind" fn(L: *mut lua_State, ar: *mut lua_Debug);
 
-extern "C" {
+extern "C-unwind" {
     pub fn lua_getstack(L: *mut lua_State, level: c_int, ar: *mut lua_Debug) -> c_int;
     pub fn lua_getinfo(L: *mut lua_State, what: *const c_char, ar: *mut lua_Debug) -> c_int;
     pub fn lua_getnresults(L: *mut lua_State) -> c_int;

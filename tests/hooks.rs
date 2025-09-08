@@ -3,7 +3,8 @@
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use mlua::{DebugEvent, Error, HookTriggers, Lua, Result, ThreadStatus, Value, VmState};
+#[allow(unused)]
+use theseus_mlua::{DebugEvent, Error, HookTriggers, Lua, Result, ThreadStatus, Value, VmState};
 
 #[test]
 fn test_hook_triggers() {
@@ -222,6 +223,7 @@ fn test_hook_swap_within_hook() -> Result<()> {
 }
 
 #[test]
+#[cfg(not(feature = "lua-factorio"))]
 fn test_hook_threads() -> Result<()> {
     let lua = Lua::new();
 
@@ -294,6 +296,7 @@ fn test_hook_yield() -> Result<()> {
 }
 
 #[test]
+#[cfg(not(feature = "lua-factorio"))]
 fn test_global_hook() -> Result<()> {
     let lua = Lua::new();
 

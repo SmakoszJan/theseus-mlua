@@ -1,4 +1,4 @@
-use mlua::{Error, Function, Lua, Result, String, Table, Variadic};
+use theseus_mlua::{Error, Function, Lua, Result, String, Table, Variadic};
 
 #[test]
 fn test_function_call() -> Result<()> {

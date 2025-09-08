@@ -4,12 +4,14 @@ use std::os::raw::{c_char, c_int, c_void};
 use std::{ptr, slice, str};
 
 use crate::error::{Error, Result};
-
+#[allow(unused_imports)]
 pub(crate) use error::{
     error_traceback, error_traceback_thread, init_error_registry, pop_error, protect_lua_call,
     protect_lua_closure, WrappedFailure,
 };
 pub(crate) use path::parse_path as parse_lookup_path;
+#[allow(unused)]
+use rustversion::all;
 pub(crate) use short_names::short_type_name;
 pub(crate) use types::TypeKey;
 pub(crate) use userdata::{
@@ -60,6 +62,7 @@ impl StackGuard {
 
     // Same as `new()`, but allows specifying the expected stack size at the end of the scope.
     #[inline]
+    #[allow(unused)]
     pub(crate) fn with_top(state: *mut ffi::lua_State, top: c_int) -> StackGuard {
         StackGuard { state, top }
     }
@@ -220,7 +223,12 @@ pub(crate) unsafe extern "C-unwind" fn safe_xpcall(state: *mut ffi::lua_State) -
 // Returns Lua main thread for Lua >= 5.2 or checks that the passed thread is main for Lua 5.1.
 // Does not call lua_checkstack, uses 1 stack space.
 pub(crate) unsafe fn get_main_state(state: *mut ffi::lua_State) -> Option<*mut ffi::lua_State> {
-    #[cfg(any(feature = "lua54", feature = "lua53", feature = "lua52"))]
+    #[cfg(any(
+        feature = "lua54",
+        feature = "lua53",
+        feature = "lua52",
+        feature = "lua-factorio"
+    ))]
     {
         ffi::lua_rawgeti(state, ffi::LUA_REGISTRYINDEX, ffi::LUA_RIDX_MAINTHREAD);
         let main_state = ffi::lua_tothread(state, -1);

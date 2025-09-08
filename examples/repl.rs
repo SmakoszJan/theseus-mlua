@@ -1,7 +1,7 @@
 //! This example shows a simple read-evaluate-print-loop (REPL).
 
-use mlua::{Error, Lua, MultiValue};
 use rustyline::DefaultEditor;
+use theseus_mlua::{Error, Lua, MultiValue};
 
 fn main() {
     let lua = Lua::new();
