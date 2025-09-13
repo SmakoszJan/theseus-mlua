@@ -335,7 +335,7 @@ impl<'de> serde::Deserializer<'de> for Deserializer {
 
                 let len = t.raw_len();
                 let mut deserializer = SeqDeserializer {
-                    index: 0,
+                    index: 1,
                     seq: t.sequence_values(),
                     options: self.options,
                     visited: self.visited,
