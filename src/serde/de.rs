@@ -1,12 +1,10 @@
 //! Deserialize Lua values to a Rust data structure.
 
 use std::cell::RefCell;
-use std::fmt::Display;
 use std::os::raw::c_void;
 use std::rc::Rc;
 use std::result::Result as StdResult;
 use std::string::String as StdString;
-use std::sync::Arc;
 
 use rustc_hash::FxHashSet;
 use serde::de::{self, IntoDeserializer};
@@ -15,61 +13,6 @@ use crate::error::Error;
 use crate::table::{Table, TablePairs, TableSequence};
 use crate::userdata::AnyUserData;
 use crate::value::Value;
-
-#[derive(Debug, Clone)]
-pub enum PathSegment {
-    Index(usize),
-    Field(Arc<str>),
-}
-
-#[derive(Debug, Clone)]
-pub struct ErrorTraced {
-    pub path: Vec<PathSegment>,
-    pub error: Error,
-}
-
-impl From<Error> for ErrorTraced {
-    fn from(value: Error) -> Self {
-        Self {
-            path: Vec::new(),
-            error: value,
-        }
-    }
-}
-
-impl Display for ErrorTraced {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut path_iter = self.path.iter().rev();
-        let mut path = match path_iter.next() {
-            Some(PathSegment::Index(i)) => format!("[{i}]"),
-            Some(PathSegment::Field(v)) => v.to_string(),
-            None => String::new(),
-        };
-
-        for segment in path_iter {
-            match segment {
-                PathSegment::Index(i) => path += &format!("[{i}]"),
-                PathSegment::Field(v) => {
-                    path += ".";
-                    path += v.as_ref()
-                }
-            }
-        }
-
-        write!(f, "deserializing error at {path}: {}", self.error)
-    }
-}
-
-impl std::error::Error for ErrorTraced {}
-
-impl serde::de::Error for ErrorTraced {
-    fn custom<T>(msg: T) -> Self
-    where
-        T: Display,
-    {
-        <Error as serde::de::Error>::custom(msg).into()
-    }
-}
 
 /// A struct for deserializing Lua values into Rust values.
 #[derive(Debug)]
@@ -192,10 +135,10 @@ impl Deserializer {
 }
 
 impl<'de> serde::Deserializer<'de> for Deserializer {
-    type Error = ErrorTraced;
+    type Error = Error;
 
     #[inline]
-    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, ErrorTraced>
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Error>
     where
         V: de::Visitor<'de>,
     {
@@ -219,7 +162,7 @@ impl<'de> serde::Deserializer<'de> for Deserializer {
             Value::Table(_) => self.deserialize_map(visitor),
             Value::LightUserData(ud) if ud.0.is_null() => visitor.visit_none(),
             Value::UserData(ud) if ud.is_serializable() => {
-                serde_userdata(ud, |value| value.deserialize_any(visitor)).map_err(ErrorTraced::from)
+                serde_userdata(ud, |value| value.deserialize_any(visitor)).map_err(Error::from)
             }
             #[cfg(feature = "luau")]
             Value::Buffer(buf) => {
@@ -243,7 +186,7 @@ impl<'de> serde::Deserializer<'de> for Deserializer {
     }
 
     #[inline]
-    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, ErrorTraced>
+    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Error>
     where
         V: de::Visitor<'de>,
     {
@@ -260,7 +203,7 @@ impl<'de> serde::Deserializer<'de> for Deserializer {
         name: &'static str,
         variants: &'static [&'static str],
         visitor: V,
-    ) -> Result<V::Value, ErrorTraced>
+    ) -> Result<V::Value, Error>
     where
         V: de::Visitor<'de>,
     {
@@ -270,7 +213,7 @@ impl<'de> serde::Deserializer<'de> for Deserializer {
 
                 let mut iter = table.pairs::<StdString, Value>();
                 let (variant, value) = match iter.next() {
-                    Some(v) => v.map_err(ErrorTraced::from)?,
+                    Some(v) => v.map_err(Error::from)?,
                     None => {
                         return Err(de::Error::invalid_value(
                             de::Unexpected::Map,
@@ -287,21 +230,17 @@ impl<'de> serde::Deserializer<'de> for Deserializer {
                 }
                 let skip = check_value_for_skip(&value, self.options, &self.visited)
                     .map_err(|err| Error::DeserializeError(err.to_string()))
-                    .map_err(ErrorTraced::from)?;
+                    .map_err(Error::from)?;
                 if skip {
                     return Err(de::Error::custom("bad enum value"));
                 }
 
                 (variant, Some(value), Some(_guard))
             }
-            Value::String(variant) => (
-                variant.to_str().map_err(ErrorTraced::from)?.to_owned(),
-                None,
-                None,
-            ),
+            Value::String(variant) => (variant.to_str().map_err(Error::from)?.to_owned(), None, None),
             Value::UserData(ud) if ud.is_serializable() => {
                 return serde_userdata(ud, |value| value.deserialize_enum(name, variants, visitor))
-                    .map_err(ErrorTraced::from);
+                    .map_err(Error::from);
             }
             _ => return Err(de::Error::custom("bad enum value")),
         };
@@ -315,7 +254,7 @@ impl<'de> serde::Deserializer<'de> for Deserializer {
     }
 
     #[inline]
-    fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value, ErrorTraced>
+    fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value, Error>
     where
         V: de::Visitor<'de>,
     {
@@ -348,7 +287,7 @@ impl<'de> serde::Deserializer<'de> for Deserializer {
                 }
             }
             Value::UserData(ud) if ud.is_serializable() => {
-                serde_userdata(ud, |value| value.deserialize_seq(visitor)).map_err(ErrorTraced::from)
+                serde_userdata(ud, |value| value.deserialize_seq(visitor)).map_err(Error::from)
             }
             value => Err(de::Error::invalid_type(
                 de::Unexpected::Other(value.type_name()),
@@ -358,7 +297,7 @@ impl<'de> serde::Deserializer<'de> for Deserializer {
     }
 
     #[inline]
-    fn deserialize_tuple<V>(self, _len: usize, visitor: V) -> Result<V::Value, ErrorTraced>
+    fn deserialize_tuple<V>(self, _len: usize, visitor: V) -> Result<V::Value, Error>
     where
         V: de::Visitor<'de>,
     {
@@ -371,7 +310,7 @@ impl<'de> serde::Deserializer<'de> for Deserializer {
         _name: &'static str,
         _len: usize,
         visitor: V,
-    ) -> Result<V::Value, ErrorTraced>
+    ) -> Result<V::Value, Error>
     where
         V: de::Visitor<'de>,
     {
@@ -379,7 +318,7 @@ impl<'de> serde::Deserializer<'de> for Deserializer {
     }
 
     #[inline]
-    fn deserialize_map<V>(self, visitor: V) -> Result<V::Value, ErrorTraced>
+    fn deserialize_map<V>(self, visitor: V) -> Result<V::Value, Error>
     where
         V: de::Visitor<'de>,
     {
@@ -388,7 +327,7 @@ impl<'de> serde::Deserializer<'de> for Deserializer {
                 let _guard = RecursionGuard::new(&t, &self.visited);
 
                 let mut deserializer = MapDeserializer {
-                    pairs: MapPairs::new(&t, self.options.sort_keys).map_err(ErrorTraced::from)?,
+                    pairs: MapPairs::new(&t, self.options.sort_keys).map_err(Error::from)?,
                     value: None,
                     options: self.options,
                     visited: self.visited,
@@ -406,7 +345,7 @@ impl<'de> serde::Deserializer<'de> for Deserializer {
                 }
             }
             Value::UserData(ud) if ud.is_serializable() => {
-                serde_userdata(ud, |value| value.deserialize_map(visitor)).map_err(ErrorTraced::from)
+                serde_userdata(ud, |value| value.deserialize_map(visitor)).map_err(Error::from)
             }
             value => Err(de::Error::invalid_type(
                 de::Unexpected::Other(value.type_name()),
@@ -421,7 +360,7 @@ impl<'de> serde::Deserializer<'de> for Deserializer {
         _name: &'static str,
         _fields: &'static [&'static str],
         visitor: V,
-    ) -> Result<V::Value, ErrorTraced>
+    ) -> Result<V::Value, Error>
     where
         V: de::Visitor<'de>,
     {
@@ -429,21 +368,21 @@ impl<'de> serde::Deserializer<'de> for Deserializer {
     }
 
     #[inline]
-    fn deserialize_newtype_struct<V>(self, name: &'static str, visitor: V) -> Result<V::Value, ErrorTraced>
+    fn deserialize_newtype_struct<V>(self, name: &'static str, visitor: V) -> Result<V::Value, Error>
     where
         V: de::Visitor<'de>,
     {
         match self.value {
             Value::UserData(ud) if ud.is_serializable() => {
                 serde_userdata(ud, |value| value.deserialize_newtype_struct(name, visitor))
-                    .map_err(ErrorTraced::from)
+                    .map_err(Error::from)
             }
             _ => visitor.visit_newtype_struct(self),
         }
     }
 
     #[inline]
-    fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value, ErrorTraced>
+    fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value, Error>
     where
         V: de::Visitor<'de>,
     {
@@ -454,7 +393,7 @@ impl<'de> serde::Deserializer<'de> for Deserializer {
     }
 
     #[inline]
-    fn deserialize_unit_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value, ErrorTraced>
+    fn deserialize_unit_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value, Error>
     where
         V: de::Visitor<'de>,
     {
@@ -478,18 +417,18 @@ struct SeqDeserializer<'a> {
 }
 
 impl<'de> de::SeqAccess<'de> for SeqDeserializer<'_> {
-    type Error = ErrorTraced;
+    type Error = Error;
 
-    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, ErrorTraced>
+    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Error>
     where
         T: de::DeserializeSeed<'de>,
     {
-        let mut res = loop {
+        let res = loop {
             self.index += 1;
 
             match self.seq.next() {
                 Some(value) => {
-                    let value = match value.map_err(ErrorTraced::from) {
+                    let value = match value.map_err(Error::from) {
                         Ok(it) => it,
                         Err(err) => {
                             break Err(err);
@@ -497,7 +436,7 @@ impl<'de> de::SeqAccess<'de> for SeqDeserializer<'_> {
                     };
                     let skip = match check_value_for_skip(&value, self.options, &self.visited)
                         .map_err(|err| Error::DeserializeError(err.to_string()))
-                        .map_err(ErrorTraced::from)
+                        .map_err(Error::from)
                     {
                         Ok(it) => it,
                         Err(err) => {
@@ -514,10 +453,6 @@ impl<'de> de::SeqAccess<'de> for SeqDeserializer<'_> {
                 None => break Ok(None),
             }
         };
-
-        if let Err(err) = &mut res {
-            err.path.push(PathSegment::Index(self.index - 1));
-        }
 
         res
     }
@@ -606,50 +541,41 @@ impl Iterator for MapPairs<'_> {
 
 struct MapDeserializer<'a> {
     pairs: MapPairs<'a>,
-    value: Option<(Arc<str>, Value)>,
+    value: Option<Value>,
     options: Options,
     visited: Rc<RefCell<FxHashSet<*const c_void>>>,
     processed: usize,
 }
 
 impl MapDeserializer<'_> {
-    fn next_key_deserializer(&mut self) -> Result<Option<(Deserializer, Arc<str>)>, ErrorTraced> {
+    fn next_key_deserializer(&mut self) -> Result<Option<Deserializer>, Error> {
         loop {
             match self.pairs.next() {
                 Some(item) => {
-                    let (key, value) = item.map_err(ErrorTraced::from)?;
-                    let key_str: Arc<str> = key.to_string().unwrap_or_default().into();
+                    let (key, value) = item.map_err(Error::from)?;
                     let skip_key = check_value_for_skip(&key, self.options, &self.visited)
-                        .map_err(|err| Error::DeserializeError(err.to_string()))
-                        .map_err(|err| ErrorTraced {
-                            path: vec![PathSegment::Field(key_str.clone())],
-                            error: err,
-                        })?;
+                        .map_err(|err| Error::DeserializeError(err.to_string()))?;
                     let skip_value = check_value_for_skip(&value, self.options, &self.visited)
-                        .map_err(|err| Error::DeserializeError(err.to_string()))
-                        .map_err(|err| ErrorTraced {
-                            path: vec![PathSegment::Field(key_str.clone())],
-                            error: err,
-                        })?;
+                        .map_err(|err| Error::DeserializeError(err.to_string()))?;
                     if skip_key || skip_value {
                         continue;
                     }
                     self.processed += 1;
-                    self.value = Some((key_str.clone(), value));
+                    self.value = Some(value);
                     let visited = Rc::clone(&self.visited);
                     let key_de = Deserializer::from_parts(key, self.options, visited);
-                    return Ok(Some((key_de, key_str)));
+                    return Ok(Some(key_de));
                 }
                 None => return Ok(None),
             }
         }
     }
 
-    fn next_value_deserializer(&mut self) -> Result<(Deserializer, Arc<str>), ErrorTraced> {
+    fn next_value_deserializer(&mut self) -> Result<Deserializer, Error> {
         match self.value.take() {
-            Some((key, value)) => {
+            Some(value) => {
                 let visited = Rc::clone(&self.visited);
-                Ok((Deserializer::from_parts(value, self.options, visited), key))
+                Ok(Deserializer::from_parts(value, self.options, visited))
             }
             None => Err(de::Error::custom("value is missing")),
         }
@@ -657,30 +583,24 @@ impl MapDeserializer<'_> {
 }
 
 impl<'de> de::MapAccess<'de> for MapDeserializer<'_> {
-    type Error = ErrorTraced;
+    type Error = Error;
 
-    fn next_key_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, ErrorTraced>
+    fn next_key_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Error>
     where
         T: de::DeserializeSeed<'de>,
     {
         match self.next_key_deserializer()? {
-            Some((key_de, key_str)) => seed.deserialize(key_de).map(Some).map_err(|mut err| {
-                err.path.push(PathSegment::Field(key_str));
-                err
-            }),
+            Some(key_de) => seed.deserialize(key_de).map(Some),
             None => Ok(None),
         }
     }
 
-    fn next_value_seed<T>(&mut self, seed: T) -> Result<T::Value, ErrorTraced>
+    fn next_value_seed<T>(&mut self, seed: T) -> Result<T::Value, Error>
     where
         T: de::DeserializeSeed<'de>,
     {
-        let (value_de, key) = self.next_value_deserializer()?;
-        seed.deserialize(value_de).map_err(|mut err| {
-            err.path.push(PathSegment::Field(key));
-            err
-        })
+        let value_de = self.next_value_deserializer()?;
+        seed.deserialize(value_de)
     }
 
     fn size_hint(&self) -> Option<usize> {
@@ -699,10 +619,10 @@ struct EnumDeserializer {
 }
 
 impl<'de> de::EnumAccess<'de> for EnumDeserializer {
-    type Error = ErrorTraced;
+    type Error = Error;
     type Variant = VariantDeserializer;
 
-    fn variant_seed<T>(self, seed: T) -> Result<(T::Value, Self::Variant), ErrorTraced>
+    fn variant_seed<T>(self, seed: T) -> Result<(T::Value, Self::Variant), Error>
     where
         T: de::DeserializeSeed<'de>,
     {
@@ -723,9 +643,9 @@ struct VariantDeserializer {
 }
 
 impl<'de> de::VariantAccess<'de> for VariantDeserializer {
-    type Error = ErrorTraced;
+    type Error = Error;
 
-    fn unit_variant(self) -> Result<(), ErrorTraced> {
+    fn unit_variant(self) -> Result<(), Error> {
         match self.value {
             Some(_) => Err(de::Error::invalid_type(
                 de::Unexpected::NewtypeVariant,
@@ -735,7 +655,7 @@ impl<'de> de::VariantAccess<'de> for VariantDeserializer {
         }
     }
 
-    fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, ErrorTraced>
+    fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Error>
     where
         T: de::DeserializeSeed<'de>,
     {
@@ -748,7 +668,7 @@ impl<'de> de::VariantAccess<'de> for VariantDeserializer {
         }
     }
 
-    fn tuple_variant<V>(self, _len: usize, visitor: V) -> Result<V::Value, ErrorTraced>
+    fn tuple_variant<V>(self, _len: usize, visitor: V) -> Result<V::Value, Error>
     where
         V: de::Visitor<'de>,
     {
@@ -764,7 +684,7 @@ impl<'de> de::VariantAccess<'de> for VariantDeserializer {
         }
     }
 
-    fn struct_variant<V>(self, _fields: &'static [&'static str], visitor: V) -> Result<V::Value, ErrorTraced>
+    fn struct_variant<V>(self, _fields: &'static [&'static str], visitor: V) -> Result<V::Value, Error>
     where
         V: de::Visitor<'de>,
     {

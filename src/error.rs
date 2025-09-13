@@ -8,7 +8,6 @@ use std::string::String as StdString;
 use std::sync::Arc;
 
 use crate::private::Sealed;
-use crate::serde::de::ErrorTraced;
 
 #[cfg(feature = "error-send")]
 type DynStdError = dyn StdError + Send + Sync;
@@ -209,12 +208,6 @@ pub enum Error {
         /// Underlying error.
         cause: Arc<Error>,
     },
-}
-
-impl From<ErrorTraced> for Error {
-    fn from(value: ErrorTraced) -> Self {
-        Self::DeserializeError(value.to_string())
-    }
 }
 
 /// A specialized `Result` type used by `mlua`'s API.
